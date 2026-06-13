@@ -1,0 +1,2038 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIF Schedule Manager</title>
+<script src="https://cdn.jsdelivr.net/npm/interactjs@1.10/dist/interact.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f1f5f9; --surface: #fff; --border: #e2e8f0; --text: #1e293b;
+  --text-secondary: #64748b; --accent: #1e40af; --danger: #ef4444;
+  --wp-colors: #3b82f6,#10b981,#f59e0b,#8b5cf6,#ec4899,#06b6d4,#84cc16,#f97316;
+  --sidebar-width: 260px; --topbar-height: 40px;
+}
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; font-size: 13px; }
+
+/* TopBar */
+#topbar { height: var(--topbar-height); background: #0f172a; color: #fff; display: flex; align-items: center; padding: 0 12px; gap: 12px; font-size: 12px; user-select: none; }
+#topbar strong { font-size: 14px; margin-right: 4px; }
+#topbar .sep { color: #475569; }
+#topbar button { padding: 4px 10px; font-size: 11px; background: #334155; color: #fff; border: none; border-radius: 3px; cursor: pointer; }
+#topbar button:hover { background: #475569; }
+#topbar .zoom-label { padding: 3px 8px; font-size: 10px; background: var(--accent); border-radius: 3px; }
+#project-label { cursor: default; }
+#project-label.editing { background: #1e293b; outline: 1px solid #3b82f6; padding: 2px 6px; border-radius: 3px; }
+
+/* Main Layout */
+#main { display: flex; height: calc(100vh - var(--topbar-height)); }
+
+/* Sidebar */
+#sidebar { width: var(--sidebar-width); min-width: var(--sidebar-width); background: var(--surface); border-right: 2px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+#sidebar-header { padding: 8px 12px; background: var(--accent); color: #fff; font-weight: 600; font-size: 12px; }
+#wp-tree { flex: 1; overflow-y: auto; padding: 4px; }
+.wp-node { margin-bottom: 1px; }
+.wp-node-header { padding: 5px 8px; font-size: 11px; cursor: pointer; border-radius: 3px; display: flex; align-items: center; gap: 4px; }
+.wp-node-header:hover { background: #f1f5f9; }
+.wp-node-header .arrow { font-size: 9px; width: 12px; text-align: center; flex-shrink: 0; }
+.wp-node-header .wp-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wp-node-header .wp-count { font-size: 9px; color: var(--text-secondary); }
+.wp-node-header.selected { background: #dbeafe; }
+.wp-children { margin-left: 12px; display: none; }
+.wp-children.open { display: block; }
+.deliverable-item { padding: 3px 8px; font-size: 10px; color: #374151; cursor: pointer; border-radius: 2px; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.deliverable-item:hover { background: #e0e7ff; }
+.deliverable-item.placed { color: #10b981; }
+.deliverable-item.placed::before { content: '✓ '; font-size: 9px; }
+
+#unplaced-section { border-top: 1px solid var(--border); padding: 8px; max-height: 160px; overflow-y: auto; }
+#unplaced-section .section-label { font-size: 10px; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px; }
+.unplaced-card { padding: 3px 8px; background: #fef3c7; border: 1px dashed #f59e0b; border-radius: 3px; font-size: 10px; margin-bottom: 2px; cursor: grab; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.unplaced-card:active { cursor: grabbing; }
+
+#hidden-section { border-top: 1px solid var(--border); padding: 8px; max-height: 120px; overflow-y: auto; display: none; }
+#hidden-section .section-label { font-size: 10px; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px; }
+.hidden-wp { padding: 3px 8px; font-size: 10px; color: #94a3b8; cursor: pointer; border-radius: 2px; }
+.hidden-wp:hover { background: #e2e8f0; color: #475569; }
+
+#custom-form { border-top: 1px dashed var(--border); padding: 8px; }
+#custom-form .section-label { font-size: 10px; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px; }
+#custom-form input, #custom-form select { width: 100%; font-size: 10px; padding: 3px 6px; margin-bottom: 3px; border: 1px solid #d1d5db; border-radius: 3px; }
+#custom-form button { width: 100%; font-size: 10px; padding: 3px; background: #10b981; color: #fff; border: none; border-radius: 3px; cursor: pointer; }
+#custom-form button:hover { background: #059669; }
+
+/* Board */
+#board-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); }
+
+/* Zoom Controls */
+#zoom-controls { padding: 5px 12px; background: #f8fafc; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 6px; font-size: 11px; flex-shrink: 0; }
+#zoom-controls button { padding: 2px 8px; font-size: 10px; border: 1px solid #94a3b8; background: #fff; border-radius: 3px; cursor: pointer; }
+#zoom-controls button.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+#zoom-controls .nav-btn { padding: 2px 6px; font-size: 10px; }
+#zoom-controls .date-label { color: #475569; font-weight: 600; min-width: 100px; text-align: center; }
+
+/* Board scroll area */
+#board-scroll { flex: 1; overflow: auto; position: relative; }
+#board { min-width: 100%; position: relative; }
+
+/* Timeline Header */
+#timeline-header { display: flex; position: sticky; top: 0; z-index: 10; background: #f1f5f9; border-bottom: 2px solid #cbd5e1; }
+#timeline-header .wp-header-cell { width: 180px; min-width: 180px; padding: 6px 10px; font-size: 10px; font-weight: 700; color: #334155; border-right: 1px solid #cbd5e1; }
+#timeline-header #col-headers { display: flex; }
+#timeline-header .col-header { text-align: center; padding: 5px 2px; font-size: 10px; border-right: 1px solid #e2e8f0; color: #475569; flex-shrink: 0; }
+#timeline-header .col-header .sub { color: #94a3b8; font-size: 9px; }
+#timeline-header .col-header.today-col { background: #eff6ff; }
+
+/* Swimlanes */
+#swimlanes { position: relative; }
+.swimlane { display: flex; border-bottom: 1px solid #e2e8f0; min-height: 52px; position: relative; }
+.swimlane.hidden-lane { display: none; }
+.swimlane-header { width: 180px; min-width: 180px; padding: 8px 10px; font-size: 10px; font-weight: 600; color: #1e40af; border-right: 1px solid #cbd5e1; background: #f8fafc; display: flex; align-items: center; cursor: context-menu; user-select: none; flex-shrink: 0; }
+.swimlane-body { flex: 1; position: relative; min-height: 48px; }
+.swimlane-body .drop-hint { display: flex; align-items: center; justify-content: center; height: 100%; font-size: 10px; color: #94a3b8; }
+.swimlane-body.drag-over { background: #eff6ff; }
+
+/* Deliverable Bar */
+.deliverable-bar { position: absolute; height: 28px; border-radius: 4px; font-size: 9px; color: #fff; padding: 4px 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.15); cursor: move; display: flex; align-items: center; z-index: 2; user-select: none; }
+.deliverable-bar.custom { border-style: dashed; border-width: 2px; }
+.deliverable-bar .bar-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.deliverable-bar .bar-dates { font-size: 8px; background: rgba(255,255,255,0.2); padding: 1px 6px; border-radius: 3px; white-space: nowrap; flex-shrink: 0; margin-left: 4px; }
+.deliverable-bar .anchor-dot { position: absolute; width: 22px; height: 22px; border: 2px solid #fff; border-radius: 50%; z-index: 5; cursor: crosshair; display: none; }
+.deliverable-bar .anchor-dot::after { content: ''; position: absolute; top: -8px; left: -8px; right: -8px; bottom: -8px; border-radius: 50%; }
+.deliverable-bar .anchor-dot.source { right: -11px; top: 50%; transform: translateY(-50%); background: #ef4444; box-shadow: 0 0 0 2px #ef4444; }
+.deliverable-bar .anchor-dot.target { left: -11px; top: 50%; transform: translateY(-50%); background: #3b82f6; box-shadow: 0 0 0 2px #3b82f6; }
+.deliverable-bar:hover .anchor-dot { display: block; }
+.dragging-arrow .deliverable-bar .anchor-dot { display: block; }
+.deliverable-bar .remove-btn { position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; background: rgba(0,0,0,0.5); border-radius: 50%; display: none; align-items: center; justify-content: center; font-size: 9px; color: #fff; cursor: pointer; line-height: 1; }
+.deliverable-bar:hover .remove-btn { display: flex; }
+.deliverable-bar.conflict { box-shadow: 0 0 0 3px #ef4444; }
+.deliverable-bar.selected { outline: 3px solid #fff; outline-offset: 2px; box-shadow: 0 0 0 5px rgba(255,255,255,0.5); z-index: 8 !important; }
+.deliverable-bar.critical { outline: 3px solid #22c55e; outline-offset: 1px; }
+
+/* Dependency Arrows SVG */
+#arrows-svg { position: absolute; top: 0; left: 180px; pointer-events: none; z-index: 3; }
+#arrows-svg path.arrow-line { pointer-events: stroke; cursor: pointer; }
+#arrows-svg path.arrow-line:hover { stroke-width: 3 !important; }
+#arrows-svg .arrow-label-bg { pointer-events: none; }
+
+/* Drag ghost */
+.drag-ghost { position: fixed; pointer-events: none; z-index: 1000; background: rgba(59,130,246,0.8); color: #fff; padding: 4px 12px; border-radius: 4px; font-size: 11px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); transform: translate(-50%, -50%); }
+
+/* Modal */
+.modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 100; justify-content: center; align-items: center; }
+.modal-overlay.open { display: flex; }
+.modal { background: #fff; border-radius: 8px; padding: 20px; width: 440px; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+.modal h3 { margin-bottom: 12px; font-size: 14px; }
+.modal label { display: block; font-size: 11px; font-weight: 600; color: #475569; margin-bottom: 2px; margin-top: 8px; }
+.modal input, .modal select, .modal textarea { width: 100%; padding: 5px 8px; font-size: 12px; border: 1px solid #d1d5db; border-radius: 4px; margin-bottom: 4px; }
+.modal textarea { height: 60px; resize: vertical; font-size: 11px; background: #f8fafc; }
+.modal .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.modal .modal-actions button { padding: 6px 16px; font-size: 12px; border-radius: 4px; border: none; cursor: pointer; }
+.modal .btn-save { background: #3b82f6; color: #fff; }
+.modal .btn-cancel { background: #e2e8f0; color: #475569; }
+.modal .btn-delete { background: #ef4444; color: #fff; margin-right: auto; }
+
+/* Context Menu */
+.context-menu { display: none; position: fixed; z-index: 200; background: #fff; border: 1px solid #d1d5db; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); padding: 4px; min-width: 180px; }
+.context-menu .ctx-item { padding: 6px 12px; font-size: 12px; cursor: pointer; border-radius: 3px; }
+.context-menu .ctx-item:hover { background: #f1f5f9; }
+.context-menu .ctx-sep { border-top: 1px solid #e2e8f0; margin: 2px 0; }
+
+/* Empty State */
+#empty-state { display: none; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #94a3b8; }
+#empty-state .empty-icon { font-size: 48px; margin-bottom: 8px; }
+#empty-state button { margin-top: 12px; padding: 8px 20px; font-size: 13px; background: var(--accent); color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+
+/* Toast */
+#toast { position: fixed; bottom: 20px; right: 20px; padding: 8px 16px; background: #1e293b; color: #fff; border-radius: 6px; font-size: 12px; z-index: 300; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+#toast.show { opacity: 1; }
+
+/* Dragging cursor state */
+.dragging-from-sidebar { cursor: grabbing !important; }
+.dragging-arrow { cursor: crosshair !important; }
+#drag-preview-line { pointer-events: none; }
+.arrow-line.selected { stroke: #fff !important; stroke-width: 3 !important; filter: drop-shadow(0 0 3px rgba(0,0,0,0.5)); }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <strong>📋 PIF Schedule Manager</strong>
+  <span class="sep">|</span>
+  <span id="project-label" title="Double-click to rename">WB3 — Template</span>
+  <span class="sep">|</span>
+  <span id="schedule-summary" style="color:#94a3b8;font-size:11px;"></span>
+  <span style="flex:1;"></span>
+  <button id="btn-import" title="Import Excel file (Required in WB3.xlsx)">📥 Import Excel</button>
+  <button id="btn-export-json">💾 Export JSON</button>
+  <button id="btn-import-json">📂 Load JSON</button>
+  <span style="flex:1;"></span>
+  <span class="zoom-label" id="zoom-label">Week View</span>
+</div>
+
+<div id="main">
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div id="sidebar-header">📂 Work Packages</div>
+    <div id="wp-tree">
+      <div style="padding:16px;text-align:center;color:#94a3b8;font-size:11px;">Import Excel to load work packages</div>
+    </div>
+    <div id="unplaced-section">
+      <div class="section-label">📌 UNPLACED (Drag to board)</div>
+      <div id="unplaced-list"></div>
+    </div>
+    <div id="hidden-section">
+      <div class="section-label">👁 HIDDEN WORK PACKAGES</div>
+      <div id="hidden-list"></div>
+    </div>
+    <div id="custom-form">
+      <div class="section-label">➕ CUSTOM DELIVERABLE</div>
+      <input type="text" id="custom-name" placeholder="Deliverable name...">
+      <select id="custom-wp"><option value="">Select WP...</option></select>
+      <button id="btn-add-custom">+ Add Custom</button>
+    </div>
+  </div>
+
+  <!-- Board -->
+  <div id="board-container">
+    <div id="zoom-controls">
+      <span style="color:#475569;font-weight:600;margin-right:4px;">ZOOM:</span>
+      <button class="zoom-btn" data-zoom="day">Day</button>
+      <button class="zoom-btn active" data-zoom="week">Week</button>
+      <button class="zoom-btn" data-zoom="month">Month</button>
+      <span class="sep">|</span>
+      <button class="nav-btn" id="btn-nav-prev">◀</button>
+      <span class="date-label" id="date-range-label">Jun 2026</span>
+      <button class="nav-btn" id="btn-nav-next">▶</button>
+      <span class="sep">|</span>
+      <button class="nav-btn" id="btn-today">Today</button>
+    </div>
+    <div id="board-scroll">
+      <div id="board">
+        <div id="timeline-header">
+          <div class="wp-header-cell">WORK PACKAGE</div>
+          <div id="col-headers"></div>
+        </div>
+        <div id="swimlanes"></div>
+        <svg id="arrows-svg"></svg>
+      </div>
+    </div>
+    <div id="empty-state">
+      <div class="empty-icon">📋</div>
+      <p>No data loaded yet</p>
+      <button id="btn-empty-import">📥 Import Excel File</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal" id="detail-modal">
+    <h3>Deliverable Details</h3>
+    <label>Name</label>
+    <input type="text" id="modal-name">
+    <label>Work Package</label>
+    <select id="modal-wp"></select>
+    <label>Start Date</label>
+    <input type="date" id="modal-start">
+    <label>End Date</label>
+    <input type="date" id="modal-end">
+    <label>Duration (days)</label>
+    <input type="number" id="modal-duration" min="1" style="width:80px;">
+    <label>Acceptance Criteria</label>
+    <textarea id="modal-criteria" readonly></textarea>
+    <label>Dependencies</label>
+    <div id="modal-deps" style="font-size:11px;color:#475569;"></div>
+    <div class="modal-actions">
+      <button class="btn-delete" id="modal-delete" style="display:none;">🗑 Delete</button>
+      <button class="btn-cancel" id="modal-cancel">Cancel</button>
+      <button class="btn-save" id="modal-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="context-menu" id="ctx-menu">
+  <div class="ctx-item" data-action="delete-arrow">Delete Arrow</div>
+</div>
+
+<div class="context-menu" id="ctx-menu-swimlane">
+  <div class="ctx-item" data-action="hide-wp">Hide Work Package</div>
+</div>
+
+<div class="context-menu" id="ctx-menu-bar">
+  <div class="ctx-item" data-action="remove-bar">Remove from Board</div>
+  <div class="ctx-item" data-action="edit-bar">Edit Details</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="delete-bar">Delete Permanently</div>
+</div>
+
+<div id="toast"></div>
+<div class="drag-ghost" id="drag-ghost" style="display:none;"></div>
+
+<script>
+// ===== STATE =====
+const state = {
+  workPackages: [],
+  dependencies: [],
+  zoom: 'week',
+  viewStart: new Date(),
+  zoomLevels: { day: 40, week: 120, month: 240 },
+  selectedDepId: null,
+  selectedBarId: null,
+  undoStack: [],
+  projectName: 'WB3 — Template'
+};
+const MAX_UNDO = 50;
+
+function pushUndo() {
+  const snapshot = {
+    workPackages: JSON.parse(JSON.stringify(state.workPackages)),
+    dependencies: JSON.parse(JSON.stringify(state.dependencies))
+  };
+  state.undoStack.push(snapshot);
+  if (state.undoStack.length > MAX_UNDO) state.undoStack.shift();
+}
+
+function performUndo() {
+  if (state.undoStack.length === 0) return false;
+  const snapshot = state.undoStack.pop();
+  state.workPackages = snapshot.workPackages;
+  state.dependencies = snapshot.dependencies;
+  state.selectedDepId = null;
+  state.selectedBarId = null;
+  renderAll();
+  saveToLocalStorage();
+  showToast('Undo (Ctrl+Z)');
+  return true;
+}
+
+// ===== EMBEDDED TEMPLATE (from Required in WB3.xlsx) =====
+const EMBEDDED_TEMPLATE = [
+  { id: '11012', name: "Insight Activation and UX", category: "Selectable", number: "11012", visible: true, _expanded: false, deliverables: [
+    { id: 'e0985ce4', name: "UX Relevance and UX Effort", acceptanceCriteria: "UX Relevance of global New Product Proposal is defined. UX Effort (allocated UX resources and budget) are defined. Both results are documented in the UX Relevance Check Tool and stored in this WP in PMT. An approval by BU/UXD or delegate is only required if decision is not already documented elsewhere (e.g., in a Product Portfolio Alignment Meeting). ", reasonOfDeviation: "Exisitng product selected", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '19b81fee', name: "UX Activity Plan", acceptanceCriteria: "UX Activities focussing on increased user understanding and improved problem definition are planned and executed until IM1. UX Activities focussing on concept ideation, preparation, and validation might already be planned until IM4. At least, an outlook exists until IM2. UX Activities are documented in the UX Activity Plan and stored in this WP in PMT. ", reasonOfDeviation: "Exisitng product selected", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '21012', name: "Customer Requirements Specification", category: "Required", number: "21012", visible: true, _expanded: false, deliverables: [
+    { id: '9548e679', name: "Customer Requirements", acceptanceCriteria: "Customer Requirements elicited from project's stakeholders and relevant sources are documented with a unique ID, classified (attributes: CRS-User, CRS-Safety, CRS-Legal, etc.), prioritized, and reviewed. Each Customer Requirement is validateable. Each reviewed Customer Requirement is linked to at least one System Requirement. New and modified Customer Requirements are created and stored using codebeamer. The status model in codebeamer is used. Configuration items follow Configuration Management Plan stored in WP \"Project Management Plan\". Customer Requirements are documented as CRS items in codebeamer according to PT Procedure Annexes for Systems Engineering. If PT standard configuration is applied, CRS Baselines are created in codebeamer. CRS Export of CRS Baseline is stored in this WP in PMT. ", reasonOfDeviation: "Existing product selected for a quick marketing launch.", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '21022', name: "Final Concept", category: "Required", number: "21022", visible: true, _expanded: false, deliverables: [
+    { id: '3431151a', name: "Final Verbal Concept (Insight, Benefit, Reason To Believe)", acceptanceCriteria: "It is indicated if and how the product concept fits to the BU Marketing Concept. Final Verbal Concept is validated with users using a methodology that is aligned with UXD according to the UX Activity Plan of the project. Indication is given that the user wants to buy the product for the estimated price point. Final Verbal Concept is stored in this WP in PMT and the PMT approval workflow is used. Final Verbal Concept is approved by gBU MKX - the Marketing Concept Owner or the Strategic Brand Manager (depending on BU set-up).", reasonOfDeviation: "Existing product selected for a quick marketing launch.", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '22002', name: "System Requirements Specification", category: "Required", number: "22002", visible: true, _expanded: false, deliverables: [
+    { id: '4528d9cd', name: "State of the Art (SoA)", acceptanceCriteria: "State of the Art is analyzed and documented in the \"SoA\" tab of the Risk Assessment template in WP \"Safety of Products\". If an additional analysis and documentation is required to cover CGP-01901-665, it has to be stored in this WP in PMT. ", reasonOfDeviation: "Existing product selected for a quick marketing launch.", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'edc5f3b2', name: "Sustainability Requirements", acceptanceCriteria: "The latest released baseline of the PT Library Sustainability in codebeamer is copied to the PIF Project/Activity. All Sustainability requirements are accepted and specified, or rejected in codebeamer. ", reasonOfDeviation: "Existing product selected for a quick marketing launch.", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '088de0a0', name: "System Requirements", acceptanceCriteria: "System Requirements (functional and non-functional) derived from Customer Requirements are documented with a unique ID, classified (attributes: \"Safety\", \"Security\" and/or \"Legislation\"; attributes: \"Warranted Char.\" and/or \"Essential WaC\"), prioritized, checked for technical feasibility, and reviewed. Each System Requirement is verifiable. Each System Requirement is linked at least to one Customer Requirement or one higher level System Requirement. New and modified System Requirements are created and stored using codebeamer. The status model in codebeamer is used. Warranted Characteristics and Essential Warranted Characteristics are defined as System Requirements and realized as characteristics. Configuration items follow Configuration Management Plan stored in WP \"Project Management Plan\". System Requirements are documented as SRS items in codebeamer according to PT Procedure Annexes for Systems Engineering. If PT standard configuration is applied, SRS Baselines are created in codebeamer. SRS Export of SRS Baseline is stored in this WP in PMT. ", reasonOfDeviation: "Existing product selected for a quick marketing launch.", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '22012', name: "Safety of Products", category: "Required", number: "22012", visible: true, _expanded: false, deliverables: [
+    { id: 'be8944de', name: "Risk Assessment and Risk Reduction for Safety of Products", acceptanceCriteria: "Risk Assessment and Risk Reduction for Safety of Products is documented, reviewed, and stored in this WP in PMT. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '22042', name: "Product Certification Plan", category: "Required", number: "22042", visible: true, _expanded: false, deliverables: [
+    { id: '6dfe4f7f', name: "Product Certification Plan", acceptanceCriteria: "Product Certification Plan is stored in this WP in PMT.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '22052', name: "Test Management", category: "Required", number: "22052", visible: true, _expanded: false, deliverables: [
+    { id: 'a4c8d54d', name: "Project-specific IVV Strategy", acceptanceCriteria: "Project-specific IVV Strategy is defined and contains at least the sections: 1. External Documents, 2. Context (can reference to existing project documents in PMT), 3. Assumptions & Constraints (can reference to existing project documents in PMT), 4. Test Scope, 5. Test Approach, and 6. Roles & Responsibilities. It also defines which party (PT or supplier) takes responsibility for which aspect of integration, verification and validation. Configuration items follow Configuration Management Plan stored in WP \"Project Management Plan\". Project-specific IVV Strategy is stored in this WP in PMT. ", reasonOfDeviation: "Exisitng product selected", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'b81def86', name: "Test Cases", acceptanceCriteria: "In general, Test Cases exist, are reviewed (e.g., by the SYS-ENG), traceable to the associated requirements, executed, recorded, and documented in Test Reports. Test Cases contain a description, preconditions, a (planned) test environment, test steps, and expected results. Test Environments (hardware, instruments, simulators, software tools, and other supporting elements needed to conduct a Test Case) are defined and available / will be available in time. In particular, Test Cases for integration testing are defined and reviewed. System Test Cases exist and are reviewed by at least a system engineer. System Test Cases are traceable to System Requirements they verify. For each WaC, verification is either covered by a state-of-the-art standard test resp. standardized external test specifications or follows a specific test procedure. In the latter case, acceptance criteria (e.g., tolerance field) are defined in a reasonable, justifiable, and state-of-the-art manner under typical working conditions and worst case conditions. In case of software, integration steps are defined on the basis of the architecture, the methods how to verify the software against Software Requirements is defined, Software Test Cases are defined, traceable to Software Requirements, and reviewed. In case of Software Unit(s), static and dynamic tests are defined. In case of domain development, Domain Test Cases exist and are reviewed. Domain Test Cases are traceable to Domain Requirements they verify. Configuration items follow Configuration Management Plan stored in WP \"Project Management Plan\". If PT standard configuration is applied, Test Cases are documented as Test Case items in codebeamer, Test Case Baselines are created in codebeamer, and Project Documentation of Test Cases is in codebeamer. Exception: Codebeamer is not required for supplier-created Test Cases BUT test results (\"pass\"/\"fail\") must be documented in codebeamer. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '30147191', name: "Test Schedule", acceptanceCriteria: "Test Schedule (including specific Test Schedules covering domain testing activities) exists and is based on the project-specific IVV Strategy. Test Schedule contains Test Cases associated to required test levels and associated to sample stages or Software Bundles. Test Schedule indicates which Test Cases are executed by PT and which by the supplier. Configuration items follow Configuration Management Plan stored in WP \"Project Management Plan\". If PT standard configuration is applied, Test Schedule is documented in codebeamer and Test Schedule Baselines are created in codebeamer. Test Schedule Export of Test Schedule Baseline is stored in this WP in PMT. Exception: Codebeamer is not required for supplier-created Test Schedules BUT test results (\"pass\"/\"fail\") must be traceably documented from verified requirements to Test Cases and Test Reports. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '23002', name: "Decompose System", category: "Required", number: "23002", visible: true, _expanded: false, deliverables: [
+    { id: '175a2d09', name: "Technology Filter (TF)", acceptanceCriteria: "TF is complete, stored in this WP in PMT, and the PMT approval workflow is used. If the product does not use an approved electronic control unit from the PT Drive Train Platform, a complete and fully approved Request for Procurement of Drive Train Electronics is stored in this WP in PMT. TF is approved by the responsible PSO and one of the EOs for PT Drive Train Platform (Hardware, Software, or Motor). ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '23012', name: "Pre-Development", category: "Required", number: "23012", visible: true, _expanded: false, deliverables: [
+    { id: '0325e95c', name: "System Architecture Documentation", acceptanceCriteria: "Deviations from process requirements according to PTCD 00662 are documented. Otherwise: The system with its interfaces is defined. System architectural design covering sub-system/system components and/or domains realized in \"system level + n\" exists. System architecture describes the system's static view, the system's dynamic behaviour, and the internal and external interfaces. Relevant architectural decisions are documented. System architecture is reviewed. Configuration items follow Configuration Management Plan stored in WP \"Project Management Plan\". If PT standard configuration is applied, EA diagrams are imported as System Design items in codebeamer according to PT Procedure Annexes for Systems Engineering, System Architecture Baselines are created in codebeamer, and Project Documentation of System Architecture is in codebeamer. ", reasonOfDeviation: "Pre - determined by existing design", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '23022', name: "Industrial Design", category: "Required", number: "23022", visible: true, _expanded: false, deliverables: [
+    { id: 'b85da34e', name: "Industrial Design Briefing", acceptanceCriteria: "Industrial Design Briefing is done and documented using the standardized template. Industrial Design Briefing is stored and approved (approval by BU UX Owner or Design Responsible) in this WP in PMT.", reasonOfDeviation: "Pre - determined by existing design", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '6312f831', name: "Draft Industrial Design Approval", acceptanceCriteria: "Draft Industrial Design Approval is prepared and documented using the standardized template. Draft Industrial Design Approval is stored and approved (approval by BU UX Owner or Design Responsible, and BU/GP) with or without requested changes in this WP in PMT. Granted draft Industrial Design Approval is forwarded to PT/P, PT/ES, and other main stakeholders. ", reasonOfDeviation: "Pre - determined by existing design", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '7db6a955', name: "Final Industrial Design Approval", acceptanceCriteria: "Final Industrial Design Approval is prepared and documented using the standardized template. Final Industrial Design Approval is stored and approved (approval by BU UX Owner or Design Responsible) with or without requested changes in this WP in PMT.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '23032', name: "Patent Check", category: "Required", number: "23032", visible: true, _expanded: false, deliverables: [
+    { id: '695e7032', name: "IP Support Dialogue", acceptanceCriteria: "IP Support Dialogue is conducted and IP Tasks are defined. Completed IP Briefing is uploaded to this WP in PMT.", reasonOfDeviation: "IP Support Dialogue is conducted and IP Tasks are defined. Completed IP Briefing is uploaded to this WP in PMT.", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '23043', name: "Technical Risk Analysis Review for Design", category: "Required", number: "23043", visible: true, _expanded: false, deliverables: [
+    { id: 'd02e2074', name: "Technical Risk Analysis Review for Design", acceptanceCriteria: "Based on the chosen approach with the Buyout Supplier the following applies: 1a) Without Technical Risk Analysis Review: Documented decision of Project Team based on criteria in PTCD 00605 exists to skip Technical Risk Analysis Review with Buyout Supplier. Approach is approved by PjM, BU/QMM and Product Responsible person from Buyout Supplier, and uploaded to this WP in PMT. 1b) With Technical Risk Analysis Review: Technical Risk Analysis Review according to PTCD 00605 is done together with Buyout Supplier. Result is documented and approved by PjM, BU/QMM and Product Responsible person from Buyout Supplier, and uploaded to this WP in PMT. 2) For PT-RT Accessory Products: Design FMEA can be skipped with agreement of PT RT/QMM. If so, an audit based on a defined questionnaire was executed by PT-RT/PUQ, and the result is documented in this WP in PMT and approved by PT-RT/QMM. ", reasonOfDeviation: "Pre - determined by existing design", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '23052', name: "Final Engineering Concept", category: "Required", number: "23052", visible: true, _expanded: false, deliverables: [
+    { id: 'd805d57c', name: "Bill of Materials (BoM); complete 3D data of product...", acceptanceCriteria: "Technical information, i.e., draft BoM, 3D data of product, documents (e.g., drawings, PQA C2 sheet, etc.), is available in the required maturity, stored and baselined in suitable IT-Systems. Restrictions (due to CM1): BoM, 3D data of product, detailed Engineering design / drawings as far as provision is requested by project team and contractually obligated by buyout supplier. A high level BoM, an assembly drawing, and an explosion drawing are always required. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '23522', name: "Service Ability Review 1", category: "Selectable", number: "23522", visible: true, _expanded: false, deliverables: [
+    { id: '5f73c573', name: "Service Ability Review 1", acceptanceCriteria: "Service Ability Review 1 is documented, stored and approved in this WP in PMT. Jira task in MAGIC is created accordingly. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '23542', name: "HW Concept and HW Design Review", category: "Selectable", number: "23542", visible: true, _expanded: false, deliverables: [
+    { id: '3adce6c5', name: "Hardware Circuit Design Review on electronics", acceptanceCriteria: "Hardware Circuit Design Review on electronics was carried out by a nominated electronics review expert. It is documented and the final version of the Hardware Circuit Design is either stored together with the review expert's approval statement or approved by the review expert in this WP in PMT.", reasonOfDeviation: "Use the approved PCBA", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '24002', name: "Test of A-Samples", category: "Selectable", number: "24002", visible: true, _expanded: false, deliverables: [
+    { id: '181d2084', name: "Test Report of A-Samples", acceptanceCriteria: "In general, Test Reports documenting test results of A-Samples exist and contain the setup of the specific test execution including Test Environment, the actual test result, and the \"pass\"/\"fail\" status of the Test Case. In particular, results of integration testing are documented and linked to Test Cases. Results of system tests are recorded including the test log for each test step, the result (passed/failed) for each test step and Test Case, and all information required to reproduce the test. In case of software, software integration is performed according to the strategy and software tests are recorded. In case of Software Unit(s), static and dynamic tests are recorded. In case of domain development, domain tests are recorded. Configuration items follow Configuration Management Plan stored in WP \"Project Management Plan\". If PT standard configuration is applied, Test Runs are documented as Test Run items and automatically baselined in codebeamer, and Test Reports are uploaded to this WP in PMT or stored in a suitable database. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '24512', name: "Release Development Samples", category: "Selectable", number: "24512", visible: true, _expanded: false, deliverables: [
+    { id: '33f98bde', name: "Development Samples", acceptanceCriteria: "Development Samples are built. Identification is ensured and registration is done.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'a8e92d87', name: "Instructions including Safety Instructions for Development Samples", acceptanceCriteria: "Safety Instructions, instructions for installation and use, and description of intended use for Development Samples are available. ", reasonOfDeviation: "A sample assembled and tested in supplier", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '43d24aac', name: "Development Sample Release", acceptanceCriteria: "Development Samples are tested and results are documented. Development Samples are released for distribution.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '25512', name: "Make or Buy Decision", category: "Required", number: "25512", visible: true, _expanded: false, deliverables: [
+    { id: '02b37ba2', name: "Double Taxation Check", acceptanceCriteria: "The criteria for a shift or loss of business by a Product Responsible Unit compared to the status quo are checked. In case of a \"highly new product\", the Evaluation Matrix for new products is filled (score is >/= 30 points), discussed with PT/TBM and PT/CTG, approved by C/TX, and stored in this WP in PMT. Otherwise, if the target manufacturing location leads to a loss of business and/or financial result by a Product Responsible Unit: 1. A tax calculation (= business evaluation) is done with involvement of PT/TBM and PT/CTG. The business evaluation is stored in this WP in PMT. 2. Results of business evaluation are discussed with C/TX and C/TXR-Country. 3. If the target manufacturing location leads to a double taxation, it is proven that its bottom line is still beneficial (= overall evaluation). 4. The overall evaluation is approved by C/TX. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '26012', name: "Sourcing Plan and Sourcing Decision", category: "Required", number: "26012", visible: true, _expanded: false, deliverables: [
+    { id: 'c0e413eb', name: "Sourcing Plan", acceptanceCriteria: "Sourcing Plan was developed in PILUM and contains all required information according to PTCD 01000. Criteria for Dual Source is checked. If Dual Source applies, the Dual Source proposal is documented in the Sourcing Plan, and all documents related to Dual Source are uploaded to PILUM. Approval for Sourcing Plan is given by MFE7, MFE-s in case of mentorship, and additional approvers defined in PILUM with the workflow type \"Sourcing Plan\". ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'f80dd5f6', name: "Requests for Quotations (RfQ), Comparisons of Quotations (COQ), and Sourcing Decision (SD)", acceptanceCriteria: "The PT standard COQ sheet from the TCO tool located in PILUM is completely filled out and meets all specific requirements stated in PTCD 01000. Sourcing Decision by \"Decision Committee\" is documented in PILUM. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '26522', name: "Risk Order for Tooling and Parts", category: "Selectable", number: "26522", visible: true, _expanded: false, deliverables: [
+    { id: '043fb087', name: "Single Part Release", acceptanceCriteria: "Single Part Release package is complete. Required technical information for ordering, i.e. draft BoM, 3D data of product, documents (e.g. drawings, PQA C2 sheet, etc.), is available in the required maturity, stored and baselined in suitable IT-Systems. All documents of the Single Part Release package are either stored in this WP in PMT or linked as already approved documents from other WPs in PMT. PMT approval workflow is used. If the approval criteria according to PTCD 00500 are not met, BU/FC is a mandatory approver and a comment is requested to be included in the PMT approval workflow. A comment is also required if the GM on average meets the approval criteria but the country/region with the lowest GM does not meet the approval criteria. Single Part Release package is fully approved. Single Part Release package is distributed. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '27002', name: "Project Kickoff, Planning and Risks", category: "Required", number: "27002", visible: true, _expanded: false, deliverables: [
+    { id: 'acb60fe2', name: "Project Kickoff", acceptanceCriteria: "Project Kickoff with participation of at least the PO (if assigned also AM) and the DevT members in an agile Project Team setup or the PjM and the core Project Team members in a cross functional Project Team setup is conducted covering at least the following items: Project objectives and expected benefits, Project scope (initially customized WBS), and Lessons learned from other projects. For impact category A and B projects, an extended kickoff workshop is conducted. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'b416027b', name: "Customized PT Product Innovation Framework", acceptanceCriteria: "The WBS and its deliverables are tailored and reflect the scope of this PIF Project.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'b66cae48', name: "Project Milestone Plan", acceptanceCriteria: "A Project Milestone Plan or a more detailed project schedule exists. If PMT is not used for scheduling, the Project Milestone Plan is stored in this WP in PMT. At least planned completion dates for Implementation Release, Launch Announcement, Delivery Release, SOP, MAV, and SOL are entered in PMT. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '9d826a8f', name: "Project Risk Assessment Sheet (initial and updates until Implementation Release)", acceptanceCriteria: "Project Risk Assessment Sheets until Implementation Release are stored in this WP in PMT.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '27012', name: "Project Calculation", category: "Required", number: "27012", visible: true, _expanded: false, deliverables: [
+    { id: 'e6ed88ed', name: "Initial product pricing", acceptanceCriteria: "A detailed analysis and calculation of the right pricing exists. The analysis is derived from user and market needs and is in line with the global PT Price Framework and the BU specific price strategy. One Retail Calculation Base (RCB) is set per region. Initial product pricing is documented, stored in this WP in PMT and the PMT approval workflow is used. Initial product pricing is approved by the gBU Pricing Manager. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'e55942fc', name: "Volume forecast 1 - PPA1", acceptanceCriteria: "An overview of the source of volume (addressable target group), distribution assumptions, as well as PPC / RRP / Street Price is given. Feedback and commitment on volumes (internal perspective) is given by the hubs. In case of non-agreement on volumes between the hubs/regions and Portfolio Management, volumes are set by rSA, rBU/MKX and gBU MBP (escalation path). The volume forecast is documentedin the applicable PPA1 template and stored in this WP in PMT. The product is in the global Marketing Calendar. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '064d83f0', name: "Project Calculation", acceptanceCriteria: "Project Calculation is done in ASSESS. Volume forecast 1 (PPA1) and initial product pricing are used as input. Required sensitivity analyses are done. For cash outflow > 10m Euro, a scenario analysis is carried out in addition. Cover page of Project Calculation is signed and stored together with the outcome of the required analyses in this WP in PMT. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '27022', name: "Project Management Plan", category: "Required", number: "27022", visible: true, _expanded: false, deliverables: [
+    { id: 'f119e844', name: "Configuration Management Plan", acceptanceCriteria: "The cooperation model for the product development with the supplier is defined. Additional deliverables, apart from the minimal required deliverables, are defined together with the supplier. Configuration Management Plan reflects project's needs in accordance with given rules and defines the chosen project-specific approach for applied configuration items. Configuration Management Plan is stored in this WP in PMT. If needed: WBS of project is adapted to Configuration Management Plan. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '29adc6d2', name: "Project Management Plan", acceptanceCriteria: "Project Management Plan is complete and contains all required chapters. Quality targets are set and included. Project Management Plan was reviewed and input is considered. Project Management Plan is signed and stored in this WP in PMT.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '27032', name: "Product Information Package for supplier", category: "Required", number: "27032", visible: true, _expanded: false, deliverables: [
+    { id: '2497108f', name: "Product Information Package", acceptanceCriteria: "Product Information Package (TPSS, draft PQA sheet, packaging specifications, etc.) is compiled and sent to the buyout supplier. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '27042', name: "Project Agreement with supplier", category: "Required", number: "27042", visible: true, _expanded: false, deliverables: [
+    { id: 'e7412f41', name: "Project Agreement / Letter of Intent (LoI)", acceptanceCriteria: "All information of Project Agreement / LoI with buyout supplier like ramp-up, VQ and warranty requirements, logistics, specifications, for CM2: cooperation within Systems Engineering, regulations for spare parts, drawings exchange, etc. prices, schedule, NDA, patent, questionnaire for SW, etc. are discussed and confirmed. Project Agreement / LoI is accepted and approved by supplier. The Project Agreement / LoI is stored in this WP in PMT or in PILUM. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '8b725f3e', name: "Compliance with PT-N2580 requirements", acceptanceCriteria: "All specifications are checked for compliance with PT N2580 requirements. Buyout supplier signs acceptance of PT-N2580 requirements.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '19002', name: "Project Charter", category: "Required", number: "19002", visible: true, _expanded: false, deliverables: [
+    { id: '3150a363', name: "Key Data Sheet (KDS)", acceptanceCriteria: "The mandatory sheets of the KDS based on the \"Innovation Context\" are filled (except Predecessor Analysis according to PTCD 01520) and the content of the key elements of the KDS was developed according to PTCD 01303. KDS is stored in this WP in PMT. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '715dfaf0', name: "Project Charter", acceptanceCriteria: "Project Charter package is complete. All documents of the Project Charter package are either stored in this WP in PMT or linked as already approved documents from other WPs in PMT and the PMT approval workflow is used. Project Charter package is fully approved. Project Charter package is distributed.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '2df9d34e', name: "Project Impact Category (PIC)", acceptanceCriteria: "PIC is agreed upon with the designated PO / PjM and the Project Sponsor applying the Project Impact Categorization Matrix for PIF Projects at PT. Project Impact Categorization Matrix is stored in this WP in PMT.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '29002', name: "Implementation Release", category: "Required", number: "29002", visible: true, _expanded: false, deliverables: [
+    { id: '3273dea3', name: "QG0/1 Report", acceptanceCriteria: "QG0/1 Report is complete (cover sheet, questionnaire, action list with persons responsible and deadlines). QG0/1 Report is stored in this WP in PMT and the PMT approval workflow is used. QG0/1 Report is signed for correctness by all participants. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '7e249a6a', name: "Implementation Release package", acceptanceCriteria: "Implementation Release package is complete. All documents of the Implementation Release package are either stored in this WP in PMT or linked as already approved documents from other WPs in PMT and the PMT approval workflow is used. If the approval criteria according to PTCD 00500 are not met, BU/FC is a mandatory approver and a comment is requested to be included in the PMT approval workflow. A comment is also required if the GM on average meets the approval criteria but the country/region with the lowest GM does not meet the approval criteria. In case of an attached \"red\" QG, both, EO Quality Management of Selling BU and PT/QMM shall be in the approval workflow for the Implementation Release package in order to retain their right to veto. Implementation Release package is fully approved. Implementation Release package is distributed. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '32002', name: "Operating Instructions", category: "Required", number: "32002", visible: true, _expanded: false, deliverables: [
+    { id: '0c3ed597', name: "Operating Instructions - Request", acceptanceCriteria: "Operating Instructions are requested either in MAGIC or, in case of PT-OG and PT/PCO-NA, with the checklist to start creation of OI. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '32012', name: "Product Certification", category: "Required", number: "32012", visible: true, _expanded: false, deliverables: [
+    { id: '2f98ac37', name: "Declaration of Samples for Product Approval testing", acceptanceCriteria: "The conditions of Samples, which are provided to the test house, are documented, signed, and stored in this WP in PMT. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '4742ce8b', name: "Product Certification reports...", acceptanceCriteria: "UL, CSA and ETL (Intertek) reports are filed by the certification body. National approval documents are filed by the responsible C-APM. All approval documents are published by APM or PT/ECS in the OADDB. ", reasonOfDeviation: "Use exisitng files required in certification plan", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '32022', name: "Technical File", category: "Required", number: "32022", visible: true, _expanded: false, deliverables: [
+    { id: 'ec1936b7', name: "Final Risk Assessment and final SCF Assessment", acceptanceCriteria: "All defined SCF requirements and measures from Risk Assessment are implemented and documented evidences are available. After agreement to content, final Risk Assessment and final SCF Assessment are stored in WP \"Safety of Products\". ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '33002', name: "Packaging", category: "Selectable", number: "33002", visible: true, _expanded: false, deliverables: [
+    { id: '48c8f784', name: "Packaging artwork", acceptanceCriteria: "Sales Packaging is specified in detail (including dimensions, layout and design). Content adheres to the principles of WaC according to PTCS 10129. Printable file(s) for Sales Packaging is/are available in the respective IT-Systems (SAP or other ERP-Systems, Windchill, Creo, …). ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '33012', name: "BOM, Drawings, PQA-Sheets", category: "Required", number: "33012", visible: true, _expanded: false, deliverables: [
+    { id: '70deb071', name: "Final Bill of Materials (BoM); final 3D data...", acceptanceCriteria: "Required technical information, i.e., BoM, 3D data of product, documents (e.g., drawings, PQA C2 sheet, etc.), is available and released in the respective IT-Systems (SAP or other ERP-Systems, Windchill, Creo, …). Critical Components (if existent) are marked in BoM. Information is published in Global Information System (GIS). Restrictions (due to CM1): BoM, 3D data of product, detailed Engineering design / drawings as far as provision is requested by project team and contractually obligated by buyout supplier. A high level BoM, an assembly drawing, and an explosion drawing are always required. Critical Components and spare parts are defined. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '33502', name: "Patent Registration", category: "Selectable", number: "33502", visible: true, _expanded: false, deliverables: [
+    { id: '09c37fef', name: "IP registration files", acceptanceCriteria: "Filing confirmations from patent office are stored in this WP in PMT.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '33532', name: "Functional Safety 2", category: "Selectable", number: "33532", visible: true, _expanded: false, deliverables: [
+    { id: '639458b2', name: "SCF-relevant documents", acceptanceCriteria: "All SCF-relevant files sent to an external agency approval body (e.g. UL, CSA, Intertek, Dekra, etc.) are stored in this WP in PMT. ", reasonOfDeviation: "Use Bosch released PCBA", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '34002', name: "Build and Test B-Samples", category: "Selectable", number: "34002", visible: true, _expanded: false, deliverables: [
+    { id: 'a75601eb', name: "Test Report of B-Samples", acceptanceCriteria: "In general, Test Reports documenting test results of B-Samples exist and contain the setup of the specific test execution including Test Environment, the actual test result, and the \"pass\"/\"fail\" status of the Test Case. In particular, results of integration testing are documented and linked to Test Cases. Results of system tests are recorded including the test log for each test step, the result (passed/failed) for each test step and Test Case, and all information required to reproduce the test. In case of software, software integration is performed according to the strategy and software tests are recorded. In case of Software Unit(s), static and dynamic tests are recorded. In case of domain development, domain tests are recorded. Configuration items follow Configuration Management Plan stored in WP \"Project Management Plan\". If PT standard configuration is applied, Test Runs are documented as Test Run items and automatically baselined in codebeamer, and Test Reports are uploaded to this WP in PMT or stored in a suitable database. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '34012', name: "Build and Test C-Samples", category: "Selectable", number: "34012", visible: true, _expanded: false, deliverables: [
+    { id: '462d984b', name: "Test Report of C-Samples", acceptanceCriteria: "In general, Test Reports documenting test results of C-Samples exist and contain the setup of the specific test execution including Test Environment, the actual test result, and the \"pass\"/\"fail\" status of the Test Case. In particular, results of integration testing are documented and linked to Test Cases. Results of system tests are recorded including the test log for each test step, the result (passed/failed) for each test step and Test Case, and all information required to reproduce the test. In case of software, software integration is performed according to the strategy and software tests are recorded. In case of Software Unit(s), static and dynamic tests are recorded. In case of domain development, domain tests are recorded. Configuration items follow Configuration Management Plan stored in WP \"Project Management Plan\". If PT standard configuration is applied, Test Runs are documented as Test Run items and automatically baselined in codebeamer, and Test Reports are uploaded to this WP in PMT or stored in a suitable database. ", reasonOfDeviation: "No C Smaple planned for ODM project", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '34022', name: "Build and Test D-Samples", category: "Required", number: "34022", visible: true, _expanded: false, deliverables: [
+    { id: 'e84ca810', name: "D-Samples", acceptanceCriteria: "D-Samples as specified in the Project Management Plan are built by supplier (= System integrated).", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'cdc01776', name: "Test of D-Samples", acceptanceCriteria: "D-Samples are tested according to Test Schedule (= System verified and validated). System is verified against its system requirements and validated against its customer requirements. All Warranted Characteristics are verified and ensured for the new product (delivery condition plus reasonable run-in time). Rules for minimum samples size and repeated measurements according to PTCS 10129 are kept.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '5db703bd', name: "Test Report of D-Samples", acceptanceCriteria: "In general, Test Reports documenting test results of D-Samples exist and contain the setup of the specific test execution including Test Environment, the actual test result, and the \"pass\"/\"fail\" status of the Test Case. In particular, results of integration testing are documented and linked to Test Cases. Results of system tests are recorded including the test log for each test step, the result (passed/failed) for each test step and Test Case, and all information required to reproduce the test. In case of software, software integration is performed according to the strategy and software tests are recorded. In case of Software Unit(s), static and dynamic tests are recorded. In case of domain development, domain tests are recorded. Configuration items follow Configuration Management Plan stored in WP \"Project Management Plan\". If PT standard configuration is applied, Test Runs are documented as Test Run items and automatically baselined in codebeamer, and Test Reports are uploaded to this WP in PMT or stored in a suitable database. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '34033', name: "Release Product", category: "Required", number: "34033", visible: true, _expanded: false, deliverables: [
+    { id: '489ee09b', name: "Waste electric and electronic equipment, batteries, and waste packaging data", acceptanceCriteria: "Waste electric and electronic equipment, batteries, and waste packaging data is recorded in the respective ITSystems (SAP or other ERP-Systems, Windchill, Creo, …). A screenshot of the actual recycling data in the system is uploaded to this WP in PMT. A positive verbal confirmation of the correct actual recycling data in the system is given in the comment section of this QG question. ", reasonOfDeviation: "Exisitng product selected", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'aa081506', name: "CRS Baseline, SRS Baseline, Project specific IVV Strategy and Test Schedule Baseline for product to be released", acceptanceCriteria: "If PT standard configuration is applied, CRS Baseline, SRS Baseline, and Test Schedule Baseline for product to be released are created in codebeamer. CRS Export of CRS Baseline is stored in the WP \"Customer Requirements Specification\" in PMT. SRS Export of SRS Baseline is stored in the WP \"System Requirements Specification\" in PMT. Project-specific IVV Strategy and Test Schedule Export of Test Schedule Baseline is stored in the WP \"Test Management\" in PMT. ", reasonOfDeviation: "Exisitng product selected", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'c545e639', name: "N2580 declaration and requested test reports", acceptanceCriteria: "All required N2580 declarations for all parts are available. If data is maintained in SAP: All required N2580 declarations for all parts are uploaded and checked in MaCS. All required N2580 declarations and requested test reports of regulated substances are a) either complete and within the limits or b) not complete or over PT-limits, but a risk assessment or an approved concession exists. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '34502', name: "Release Marketing Samples", category: "Selectable", number: "34502", visible: true, _expanded: false, deliverables: [
+    { id: '2e211599', name: "Marketing Samples", acceptanceCriteria: "Marketing Samples are built according to the Project Management Plan. Identification is ensured and registration is done. In case of placing the Marketing Sample on the EU market: CE-mark is on the type label and EU Declaration of Conformity exists.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '84168179', name: "Draft of Operating Instructions including Safety Instructions for Marketing Samples", acceptanceCriteria: "Current draft of Operating Instructions including Safety Instructions for Marketing Samples are available.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'dd5f0832', name: "Marketing Sample Release", acceptanceCriteria: "Marketing Samples are tested and results are documented. Marketing Samples are released for distribution.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '34512', name: "Release Field Test Samples", category: "Selectable", number: "34512", visible: true, _expanded: false, deliverables: [
+    { id: '16ee68ed', name: "Field Test Samples", acceptanceCriteria: "Field Test Samples (quantity and performance / functionality as specified in the Project Management Plan) are on stock. Identification is ensured and registration is done. In case of placing the Field Test Sample on the EU market: CE-mark is on the type label and EU Declaration of Conformity exists.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'b13b390e', name: "Draft of Operating Instructions including Safety Instructions for Field Test Samples", acceptanceCriteria: "Current draft of Operating Instructions including Safety Instructions for Field Test Samples are available.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'e463fe01', name: "Field Test Sample Release", acceptanceCriteria: "Field Test Samples are tested and results are documented. Field Test Samples are released for distribution.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '35002', name: "Technical Risk Analysis Review for Process", category: "Required", number: "35002", visible: true, _expanded: false, deliverables: [
+    { id: '7c345d70', name: "Technical Risk Analysis Review for Process", acceptanceCriteria: "Technical Risk Analysis Review according to PTCD 00605 is done together with Buyout Supplier. Result is documented and approved by PjM, BU/QMM and Product Responsible person from Buyout Supplier, and uploaded to this WP in PMT. Alternative for PT-RT Accessory Products: An audit based on a defined questionnaire was executed by PT-RT/PUQ, and the result is documented in this WP in PMT and approved by PT-RT/QMM. ", reasonOfDeviation: "Pre - determined by existing design", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '35022', name: "Supplier Quality Management", category: "Required", number: "35022", visible: true, _expanded: false, deliverables: [
+    { id: 'cab3ba13', name: "QZ-Test Instructions (QZTI)", acceptanceCriteria: "QZ-Test Instructions are created, reviewed and approved (by ExO and responsible QMM manager) according to PTCD 01513. A documented justification exists if test cases verifying an essential WaC are not transferred into QZTI. QZTI documents are stored by the responsible QMM manager in a suitable document management system. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '490b62bd', name: "Instruction for Pre-shipment Inspection / Incoming Inspection (VQI)", acceptanceCriteria: "Pre-shipment Inspection (= Shipment Release Tests at supplier's site) and Incoming Inspection (at PT receiving location) are defined. Inspection for first delivery is arranged.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '13842431', name: "Determination and documentation of Special Characteristics", acceptanceCriteria: "If there are no special characteristics even after the technical discussions with the buyout supplier, no further documentation is required. PT specifications and requirements are discussed and agreed with buyout supplier. Special characteristics are marked in 2D drawings by buyout supplier. Names of review participants are documented. PQA C2 sheet is signed by buyout supplier. Original Excel file and signed PQA C2 sheet (as one PDF-A file) are stored in PDM link. Signed PQA C2 sheet is available on BoM position 9812. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '35502', name: "Postponement", category: "Selectable", number: "35502", visible: true, _expanded: false, deliverables: [
+    { id: '2ad55269', name: "QG3/4 Report for postponement", acceptanceCriteria: "QG3/4 for postponement is performed at the postponement center. QG3/4 Report for postponement is complete (cover sheet, questionnaire, action list with persons responsible and deadlines). QG3/4 Report for postponement is stored in this WP in PMT and the PMT approval workflow is used. QG3/4 Report for postponement is signed for correctness by all participants. ", reasonOfDeviation: "No Postponement planned", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '30e7b3e5', name: "Delivery Release package for postponement", acceptanceCriteria: "Delivery Release package for postponement is complete. All documents of the Delivery Release package for postponement are either stored in this WP in PMT or linked as already approved documents from other WPs in PMT and the PMT approval workflow is used. If there was an update of the Project Calculation and the approval criteria according to PTCD 00500 are not met, BU/FC is a mandatory approver and a comment is requested to be included in the PMT approval workflow. A comment is also required if the GM on average meets the approval criteria but the country/region with the lowest GM does not meet the approval criteria. In case of an attached \"red\" QG for postponement, both, EO Quality Management of Selling BU and PT/QMM shall be in the approval workflow for the Delivery Release for postponement package in order to retain their right to veto (stage 1 approval). Delivery Release package for postponement is fully approved. Delivery Release package for postponement is distributed. ", reasonOfDeviation: "No Postponement planned", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '37002', name: "Project Status and Risks", category: "Required", number: "37002", visible: true, _expanded: false, deliverables: [
+    { id: '9a95f3ff', name: "Detailed project schedule including OTD planned dates", acceptanceCriteria: "A detailed project schedule exists. If PMT is not used for scheduling, the detailed project schedule is stored in this WP in PMT. All OTD planned dates are entered in PMT shortly after Implementation Release was granted. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'd7b4bc8e', name: "Project Risk Assessment Sheet (updates after Implementation Release)", acceptanceCriteria: "Project Risk Assessment Sheets after Implementation Release are stored in this WP in PMT.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '37012', name: "Sell-in and Sell-out Preparation", category: "Selectable", number: "37012", visible: true, _expanded: false, deliverables: [
+    { id: '93e2821b', name: "Checklist for Sell-in and Sell-out Preparation", acceptanceCriteria: "Checklist for Sell-in and Sell-out Preparation is filled, agreed with rBU MKX Launch Manager(s), and uploaded to this WP in PMT. In case of \"no\"-answers, the Launch Team has decided together with gBU MKX Launch Manager and rBU MKX Launch Manager(s) to either move/delay SOL or adequate measures are planned and documented in the Project Risk Assessment Sheet. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'c88c3640', name: "Aligned ramp-up planning in add*One", acceptanceCriteria: "Aligned ramp-up planning is drilled down and forecast figures are uploaded in the demand planning system addOne. PIF Team is informed about the start of demand planning in addOne by gBU LM.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '37022', name: "Product Data", category: "Required", number: "37022", visible: true, _expanded: false, deliverables: [
+    { id: '9a0d3145', name: "Master Data", acceptanceCriteria: "All required Master Data (MDM) for SKUs to be launched are available in the ERP systems.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '8dfa17e5', name: "Product Data", acceptanceCriteria: "All required enhanced product information (product descriptions, media assets, operating instructions, product to-product references, scope of supply, etc.) for Marketing Master Product (MMP), Marketing Bare Items (MBIs), and Marketing Consumer Units (MCUs) is fully maintained in the respective PIM-System. All required technical attributes for Bare Items (BIs) are fully maintained in the PIM-System (PT-BI and PT-BE: STEP, all other BUs: MPE). Principles of WaC according to PTCS 10129 are followed and the product data is correct and consistent (codebeamer vs. respective PIM- and ERP-Systems vs. all marketing materials). ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '37503', name: "Additional Launch Announcement", category: "Selectable", number: "37503", visible: true, _expanded: false, deliverables: [
+    { id: '5b40888b', name: "Volume forecast 2 - PPA2", acceptanceCriteria: "PPA1 is updated and changes for the PIF Project/Activity are indicated. The agreed volumes and assumptions for production ramp-up planning are documented. In case of non-agreement on volumes between the hubs/regions and Portfolio Management, volumes are set by rSA, rBU/MKX and gBU MBP (escalation path). The volume forecast 2 is documented as an update of the PPA1 document and either stored together with PPA1 in the WP \"Project Calculation\" or in this WP in PMT. ", reasonOfDeviation: "NO ALA planned", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'eee04726', name: "Pre-Launch Package", acceptanceCriteria: "Pre-Launch Package contains all required information according to PTCD 01303. Pre-Launch Package adheres to the principles of WaC according to PTCS 10129 and product name & intended benefit claims were checked against trademarks, local consumer laws and brand fit. Content of Pre-Launch Package is reviewed and approved by global Business Unit Marketing Strategy (gBU/MKX-ST). Pre-Launch Package is stored in this WP in PMT and the PMT approval workflow is used. ", reasonOfDeviation: "NO ALA planned", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'e661d8e8', name: "QG2 Report", acceptanceCriteria: "QG2 Report is complete (cover sheet, questionnaire, action list with persons responsible and deadlines). QG2 Report is stored in this WP in PMT and the PMT approval workflow is used. QG2 Report is signed for correctness by all participants. ", reasonOfDeviation: "NO ALA planned", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'f68bca06', name: "Additional Launch Announcement package", acceptanceCriteria: "Additional Launch Announcement package is complete. All documents of the Additional Launch Announcement package are either stored in this WP in PMT or linked as already approved documents from other WPs in PMT and the PMT approval workflow is used. If the approval criteria according to PTCD 00500 are not met, BU/FC is a mandatory approver and a comment is requested to be included in the PMT approval workflow. A comment is also required if the GM on average meets the approval criteria but the country/region with the lowest GM does not meet the approval criteria. In case of an attached \"red\" QG, both, EO Quality Management of Selling BU and PT/QMM shall be in the approval workflow for the Additional Launch Announcement package in order to retain their right to veto (stage 1 approval). Additional Launch Announcement package is fully approved. Additional Announcement package is distributed. ", reasonOfDeviation: "NO ALA planned", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '37512', name: "Additional Delivery Release", category: "Selectable", number: "37512", visible: true, _expanded: false, deliverables: [
+    { id: '932a3002', name: "Final Launch package", acceptanceCriteria: "Final Launch Package contains all required information according to PTCD 01303. Final Launch Package adheres to the principles of WaC according to PTCS 10129. Assets are available in final state, e.g., Marketing Communication material, packaging, sustainability topics, product data, and product training in English. Content of Final Launch Package is reviewed and approved by global Business Unit Marketing Strategy (gBU/MKX-ST). Final Launch Package is stored in this WP in PMT and the PMT approval workflow is used. Final Launch Package is sent to all launch countries. ", reasonOfDeviation: "NO ALA planned", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '848fec63', name: "QG3/4 Report", acceptanceCriteria: "QG3/4 Report is complete (cover sheet, questionnaire, action list with persons responsible and deadlines). QG3/4 Report is stored in this WP in PMT and the PMT approval workflow is used. QG3/4 Report is signed for correctness by all participants. ", reasonOfDeviation: "NO ALA planned", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '694eab71', name: "Additional Delivery Release package", acceptanceCriteria: "Additional Delivery Release package is complete. All documents of the Additional Delivery Release package are either stored in this WP in PMT or linked as already approved documents from other WPs in PMT and the PMT approval workflow is used. If there was an update of the Project Calculation and the approval criteria according to PTCD 00500 are not met, BU/FC is a mandatory approver and a comment is requested to be included in the PMT approval workflow. A comment is also required if the GM on average meets the approval criteria but the country/region with the lowest GM does not meet the approval criteria. In case of an attached \"red\" QG, both, EO Quality Management of Selling BU and PT/QMM shall be in the approval workflow for the Additional Delivery Release package in order to retain their right to veto (stage 1 approval). Additional Delivery Release package is fully approved. Additional Delivery Release package is distributed. ", reasonOfDeviation: "NO ALA planned", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '39003', name: "Launch Announcement", category: "Required", number: "39003", visible: true, _expanded: false, deliverables: [
+    { id: '8e45ad1d', name: "Volume forecast 2 - PPA2", acceptanceCriteria: "PPA1 is updated and changes for the PIF Project/Activity are indicated. The agreed volumes and assumptions for production ramp-up planning are documented. In case of non-agreement on volumes between the hubs/regions and Portfolio Management, volumes are set by rSA, rBU/MKX and gBU MBP (escalation path). The volume forecast 2 is documented as an update of the PPA1 document and either stored together with PPA1 in the WP \"Project Calculation\" or in this WP in PMT. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '6ef5c061', name: "Pre-Launch Package", acceptanceCriteria: "Pre-Launch Package contains all required information according to PTCD 01303. Pre-Launch Package adheres to the principles of WaC according to PTCS 10129 and product name & intended benefit claims were checked against trademarks, local consumer laws and brand fit. Content of Pre-Launch Package is reviewed and approved by global Business Unit Marketing Strategy (gBU/MKX-ST). Pre-Launch Package is stored in this WP in PMT and the PMT approval workflow is used. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '76da55c7', name: "QG2 Report", acceptanceCriteria: "QG2 Report is complete (cover sheet, questionnaire, action list with persons responsible and deadlines). QG2 Report is stored in this WP in PMT and the PMT approval workflow is used. QG2 Report is signed for correctness by all participants. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '30943a34', name: "Marketing Communication Materials", acceptanceCriteria: "Marketing Communication Material is aligned with gBU Marketing and available in English, e.g., leaflet, range overview, product demo/test box, ideas for POS, etc.). The wear of required protective gear (if applicable) and instructions in the manual are observed. Marketing Communication Assets (e.g., pictures, visuals, etc.) do not need to be final. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '3662e695', name: "Launch Announcement package", acceptanceCriteria: "Launch Announcement package is complete. All documents of the Launch Announcement package are either stored in this WP in PMT or linked as already approved documents from other WPs in PMT and the PMT approval workflow is used. If the approval criteria according to PTCD 00500 are not met, BU/FC is a mandatory approver and a comment is requested to be included in the PMT approval workflow. A comment is also required if the GM on average meets the approval criteria but the country/region with the lowest GM does not meet the approval criteria. In case of an attached \"red\" QG, both, EO Quality Management of Selling BU and PT/QMM shall be in the approval workflow for the Launch Announcement package in order to retain their right to veto (stage 1 approval). Launch Announcement package is fully approved. Launch Announcement package is distributed. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '39012', name: "Delivery Release", category: "Required", number: "39012", visible: true, _expanded: false, deliverables: [
+    { id: 'a86e513a', name: "Final Launch package", acceptanceCriteria: "Final Launch Package contains all required information according to PTCD 01303. Final Launch Package adheres to the principles of WaC according to PTCS 10129. Assets are available in final state, e.g., Marketing Communication material, packaging, sustainability topics, product data, and product training in English. Content of Final Launch Package is reviewed and approved by global Business Unit Marketing Strategy (gBU/MKX-ST). Final Launch Package is stored in this WP in PMT and the PMT approval workflow is used. Final Launch Package is sent to all launch countries. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '0f672041', name: "QG3/4 Report", acceptanceCriteria: "QG3/4 Report is complete (cover sheet, questionnaire, action list with persons responsible and deadlines). QG3/4 Report is stored in this WP in PMT and the PMT approval workflow is used. QG3/4 Report is signed for correctness by all participants. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'a4f8c707', name: "Delivery Release package", acceptanceCriteria: "Delivery Release package is complete. All documents of the Delivery Release package are either stored in this WP in PMT or linked as already approved documents from other WPs in PMT and the PMT approval workflow is used. If there was an update of the Project Calculation and the approval criteria according to PTCD 00500 are not met, BU/FC is a mandatory approver and a comment is requested to be included in the PMT approval workflow. A comment is also required if the GM on average meets the approval criteria but the country/region with the lowest GM does not meet the approval criteria. In case of an attached \"red\" QG, both, EO Quality Management of Selling BU and PT/QMM shall be in the approval workflow for the Delivery Release package in order to retain their right to veto (stage 1 approval). Delivery Release package is fully approved. Delivery Release package is distributed. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '44002', name: "Deliver Product", category: "Selectable", number: "44002", visible: true, _expanded: false, deliverables: [
+    { id: '55b9c0b0', name: "Production Ramp-up volumes", acceptanceCriteria: "All volumes according to the Ramp-up Plan are produced on time.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '44012', name: "Phase-out Product", category: "Selectable", number: "44012", visible: true, _expanded: false, deliverables: [
+    { id: 'e8c83670', name: "SKU reduction list", acceptanceCriteria: "All mandatory pre-checks according to PTCD 00811 are carried out. SKUs to be discontinued are documented in the template \"Phase-out data overview\" or a comparable BU-specific template and stored in this WP in PMT. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '64c1d025', name: "Product globally phased-out", acceptanceCriteria: "Product is neither produced (= manufacturing discontinuation) nor saleable (= sales discontinuation) anymore. Stock is cleared and liquidated. Dchain status is set to obsolete (Z9 in P13) at End of Life (EoL) of the product.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '99999', name: "Incremental Software Release", category: "Selectable", number: "99999", visible: true, _expanded: false, deliverables: [
+    { id: '5bbfdf3f', name: "SW-QGR Report", acceptanceCriteria: "SW-QGR Report is complete (cover sheet, questionnaire, action list with persons responsible and deadlines). SW-QGR Report is stored in this WP in PMT and the PMT approval workflow is used. SW-QGR Report is signed for correctness by all participants (1st level). SW-QGR Report is approved by the Project Sponsor / SO (2nd level). In case of a \"red\" SW-QGR, both, EO Quality Management of Selling BU and PT/QMM shall be in the approval workflow in order to retain their right to veto (3rd level). ", reasonOfDeviation: "Use the approved PCBA", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '47012', name: "Sell-in and Sell-out Execution", category: "Selectable", number: "47012", visible: true, _expanded: false, deliverables: [
+    { id: 'f798332e', name: "Market Release of saleable part numbers for target countries", acceptanceCriteria: "Technical Conformity of Product and Material Compliance of Product are confirmed by SO in Market Release System (SAP). Completeness of Country Approvals are confirmed by C APMs in Market Release System. As a result, the Market Release System shows the status \"released\" for the specific target countries. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: '39848da7', name: "Checklist for Sell-in and Sell-out Execution", acceptanceCriteria: "Checklist for Sell-in and Sell-out Execution is filled, agreed with rBU MKX Launch Manager(s), and uploaded to this WP in PMT. In case of \"no\"-answers, mitigation measures are planned by the Launch Team. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '49002', name: "SOP", category: "Required", number: "49002", visible: true, _expanded: false, deliverables: [
+    { id: 'eb52e7f7', name: "Start of Production (SOP)", acceptanceCriteria: "At least 1 pallet or minimum order quantity of products (>1) is manufactured under standard production conditions and continued series production is possible.", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '49012', name: "MAV", category: "Required", number: "49012", visible: true, _expanded: false, deliverables: [
+    { id: 'c5919957', name: "Market Availability (MAV)", acceptanceCriteria: "All launch volumes for the lead region are completely available on time at the central distribution center of the lead region or directly at the local distribution center(s) / customer(s).", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '49022', name: "SOL", category: "Required", number: "49022", visible: true, _expanded: false, deliverables: [
+    { id: '61e11c46', name: "Start of Launch (SOL)", acceptanceCriteria: "The product(s) for the lead region is/are launched, i.e., a first order of a series product is shipped out from a Bosch warehouse to a customer (= first sales has happened). ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] },
+  { id: '49033', name: "Project Close", category: "Required", number: "49033", visible: true, _expanded: false, deliverables: [
+    { id: '4fa8f1ff', name: "Project Reflection", acceptanceCriteria: "Lessons Learned are derived from the project and disseminated for further processing on the appropriate level. In case of a SW/HW Q-focus project, a Project Analysis was done as input in addition. A Project Reflection report is complied and stored in this WP in PMT. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null },
+    { id: 'db5a387a', name: "Project Close package", acceptanceCriteria: "Project Close package is complete. All documents of the Project Close package are either stored in this WP in PMT or linked as already approved documents from other WPs in PMT and the PMT approval workflow is used. If there was an update of the Project Calculation and the approval criteria according to PTCD 00500 are not met, BU/FC is a mandatory approver and a comment is requested to be included in the PMT approval workflow. A comment is also required if the GM on average meets the approval criteria but the country/region with the lowest GM does not meet the approval criteria. In case of an attached \"red\" QG, both, EO Quality Management of Selling BU and PT/QMM shall be in the approval workflow for the Project Close package in order to retain their right to veto (stage 1 approval). Project Close package is fully approved. Project Close package is distributed. ", reasonOfDeviation: "", isCustom: false, placed: false, startDate: null, endDate: null }
+  ] }
+];
+
+// ===== UTILS =====
+function dateStr(d) { const m = d.getMonth()+1; const day = d.getDate(); return `${d.getFullYear()}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`; }
+function formatDate(d) { const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return `${months[d.getMonth()]} ${d.getDate()}`; }
+function parseDate(s) { const p = s.split('-'); return new Date(+p[0], +p[1]-1, +p[2]); }
+function daysBetween(a, b) { return Math.round((b - a) / (1000*60*60*24)); }
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate()+n); return r; }
+function startOfWeek(d) { const r = new Date(d); r.setDate(r.getDate() - r.getDay() + 1); return r; }
+function startOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+function uuid() { return 'xxxx-xxxx-xxxx'.replace(/x/g, ()=>'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random()*36)]); }
+
+function getColWidth() { return state.zoomLevels[state.zoom]; }
+function getPixelsPerDay() { return getColWidth() / getDaysPerCol(); }
+function getDaysPerCol() { if (state.zoom === 'day') return 1; if (state.zoom === 'week') return 7; return 30; }
+
+function getStartOfCol(d) {
+  if (state.zoom === 'day') return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  if (state.zoom === 'week') return startOfWeek(d);
+  return startOfMonth(d);
+}
+
+function dateToX(date) {
+  const days = daysBetween(state.viewStart, date);
+  return days * getPixelsPerDay();
+}
+
+function xToDate(x) {
+  const origin = state.viewStart;
+  const days = Math.round(x / getPixelsPerDay());
+  return addDays(origin, days);
+}
+
+function getAllDeliverables() {
+  const result = [];
+  state.workPackages.forEach(wp => {
+    wp.deliverables.forEach(d => result.push({...d, wpId: wp.id, wpName: wp.name}));
+  });
+  return result;
+}
+
+function findDeliverable(id) {
+  for (const wp of state.workPackages) {
+    const d = wp.deliverables.find(d => d.id === id);
+    if (d) return { wp, deliverable: d };
+  }
+  return null;
+}
+
+// ===== RENDER =====
+let _criticalResult = { deliverables: new Set(), dependencies: new Set() };
+
+function renderAll() {
+  // _criticalResult is computed by renderSwimlanes() and consumed by renderArrows()
+  renderWPTree();
+  renderUnplaced();
+  renderHidden();
+  renderCustomWPSelect();
+  renderTimelineHeader();
+  renderSwimlanes();
+  renderArrows();
+  renderEmptyState();
+  updateDateLabel();
+  updateTopBar();
+}
+
+function renderWPTree() {
+  const tree = document.getElementById('wp-tree');
+  if (state.workPackages.length === 0) {
+    tree.innerHTML = '<div style="padding:16px;text-align:center;color:#94a3b8;font-size:11px;">Import Excel to load work packages</div>';
+    return;
+  }
+  tree.innerHTML = state.workPackages.map((wp, i) => {
+    const isExpanded = wp._expanded !== false;
+    const placed = wp.deliverables.filter(d => d.placed).length;
+    const total = wp.deliverables.length;
+    const color = `var(--wp-colors)`; // use inline style per WP
+    const wpColors = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316'];
+    const c = wpColors[i % wpColors.length];
+    return `
+    <div class="wp-node" data-wp-id="${wp.id}">
+      <div class="wp-node-header" onclick="toggleWP('${wp.id}')" oncontextmenu="showSwimlaneCtx(event, '${wp.id}')" style="border-left: 3px solid ${c};">
+        <span class="arrow">${isExpanded ? '▾' : '▸'}</span>
+        <span class="wp-name" title="${escHtml(wp.name)}">${escHtml(wp.name)}</span>
+        <span class="wp-count">${placed}/${total}</span>
+      </div>
+      <div class="wp-children ${isExpanded ? 'open' : ''}" id="wp-children-${wp.id}">
+        ${wp.deliverables.map(d => `
+          <div class="deliverable-item ${d.placed ? 'placed' : ''}"
+               title="${escHtml(d.name)}${d.isCustom ? ' (Custom)' : ''}"
+               draggable="true"
+               data-deliverable-id="${d.id}"
+               ondragstart="dragFromSidebar(event, '${d.id}')"
+               ondblclick="openDetailPopup('${d.id}')">
+            ${d.isCustom ? '✏️ ' : '📄 '}${escHtml(d.name)}
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderUnplaced() {
+  const list = document.getElementById('unplaced-list');
+  const unplaced = getAllDeliverables().filter(d => !d.placed);
+  if (unplaced.length === 0) {
+    list.innerHTML = '<div style="font-size:10px;color:#94a3b8;padding:4px;">All deliverables placed ✓</div>';
+    return;
+  }
+  list.innerHTML = unplaced.map(d => `
+    <div class="unplaced-card" draggable="true" data-deliverable-id="${d.id}"
+         ondragstart="dragFromSidebar(event, '${d.id}')" title="${escHtml(d.name)} — ${escHtml(d.wpName)}">
+      ${d.isCustom ? '✏️ ' : '📄 '}${escHtml(d.name)}
+    </div>
+  `).join('');
+}
+
+function renderHidden() {
+  const section = document.getElementById('hidden-section');
+  const list = document.getElementById('hidden-list');
+  const hidden = state.workPackages.filter(wp => wp.visible === false);
+  if (hidden.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  list.innerHTML = hidden.map(wp => `
+    <div class="hidden-wp" onclick="restoreWP('${wp.id}')" title="Click to restore">
+      👁 ${escHtml(wp.name)} (${wp.deliverables.length} deliverables)
+    </div>
+  `).join('');
+}
+
+function renderCustomWPSelect() {
+  const sel = document.getElementById('custom-wp');
+  sel.innerHTML = '<option value="">Select WP...</option>' +
+    state.workPackages.filter(wp => wp.visible !== false).map(wp =>
+      `<option value="${wp.id}">${escHtml(wp.name)}</option>`
+    ).join('');
+}
+
+function renderTimelineHeader() {
+  const headers = document.getElementById('col-headers');
+  const colW = getColWidth();
+  const daysPerCol = getDaysPerCol();
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  let html = '';
+  let d = new Date(state.viewStart);
+  const count = state.zoom === 'day' ? 60 : state.zoom === 'week' ? 26 : 18;
+
+  for (let i = 0; i < count; i++) {
+    let label, sub;
+    if (state.zoom === 'day') {
+      label = formatDate(d);
+      sub = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+    } else if (state.zoom === 'week') {
+      label = `W${getWeekNumber(d)}`;
+      sub = formatDate(d);
+    } else {
+      label = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+      sub = `${d.getFullYear()}`;
+    }
+    const colStart = new Date(d);
+    const colEnd = addDays(colStart, daysPerCol);
+    const isToday = today >= colStart && today < colEnd;
+    html += `<div class="col-header ${isToday ? 'today-col' : ''}" style="width:${colW}px;min-width:${colW}px;">${label}<br><span class="sub">${sub}</span></div>`;
+    d = addDays(d, daysPerCol);
+  }
+  headers.innerHTML = html;
+}
+
+function getWeekNumber(d) {
+  const start = new Date(d.getFullYear(), 0, 1);
+  const days = Math.floor((d - start) / (1000*60*60*24));
+  return Math.ceil((days + start.getDay() + 1) / 7);
+}
+
+function computeCriticalPath() {
+  // Find the LONGEST path(s) through the dependency DAG.
+  // Critical path = maximum total (duration + lags) from any start node to any end node.
+  const deliverables = new Map();
+  for (const wp of state.workPackages) {
+    if (wp.visible === false) continue;
+    for (const d of wp.deliverables) {
+      if (!d.placed || !d.startDate || !d.endDate) continue;
+      const s = parseDate(d.startDate);
+      const e = parseDate(d.endDate);
+      deliverables.set(d.id, {
+        id: d.id, start: s, end: e,
+        duration: daysBetween(s, e) + 1,
+        pathLen: daysBetween(s, e) + 1,  // longest path length ending at this node
+        bestPreds: []                     // all predecessors on a longest path to this node
+      });
+    }
+  }
+  if (deliverables.size === 0) return { deliverables: new Set(), dependencies: new Set() };
+
+  // Build adjacency and in-degree for Kahn's topological sort
+  const inDegree = new Map();
+  const adj = new Map(); // fromId → [{ id: toId, lag }]
+  for (const [id] of deliverables) {
+    inDegree.set(id, 0);
+    adj.set(id, []);
+  }
+  for (const dep of state.dependencies) {
+    if (!deliverables.has(dep.from) || !deliverables.has(dep.to)) continue;
+    adj.get(dep.from).push({ id: dep.to, lag: dep.lag || 0 });
+    inDegree.set(dep.to, (inDegree.get(dep.to) || 0) + 1);
+  }
+
+  // Kahn's algorithm — topological order
+  const queue = [];
+  for (const [id, deg] of inDegree) {
+    if (deg === 0) queue.push(id);
+  }
+  const topo = [];
+  while (queue.length > 0) {
+    const id = queue.shift();
+    topo.push(id);
+    for (const { id: toId } of adj.get(id)) {
+      const newDeg = (inDegree.get(toId) || 1) - 1;
+      inDegree.set(toId, newDeg);
+      if (newDeg === 0) queue.push(toId);
+    }
+  }
+
+  // Forward pass: longest path to each node in topological order
+  let maxPathLen = 0;
+  let terminalNodes = [];
+  for (const id of topo) {
+    const data = deliverables.get(id);
+    for (const dep of state.dependencies) {
+      if (dep.to !== id) continue;
+      const pred = deliverables.get(dep.from);
+      if (!pred) continue;
+      const actualGap = Math.max(0, daysBetween(pred.end, data.start));
+      const candidateLen = pred.pathLen + actualGap + data.duration;
+      if (candidateLen > data.pathLen) {
+        data.pathLen = candidateLen;
+        data.bestPreds = [dep.from];
+      } else if (candidateLen === data.pathLen) {
+        data.bestPreds.push(dep.from);
+      }
+    }
+    if (data.pathLen > maxPathLen) {
+      maxPathLen = data.pathLen;
+      terminalNodes = [id];
+    } else if (data.pathLen === maxPathLen) {
+      terminalNodes.push(id);
+    }
+  }
+
+  // Backtrack from terminal node(s) to collect all deliverables on the longest path(s)
+  const criticalDel = new Set();
+  const backtrack = (id) => {
+    if (criticalDel.has(id)) return;
+    criticalDel.add(id);
+    const data = deliverables.get(id);
+    if (data && data.bestPreds) {
+      for (const predId of data.bestPreds) backtrack(predId);
+    }
+  };
+  for (const id of terminalNodes) backtrack(id);
+
+  // Critical dependencies: edge lies on a longest path
+  const criticalDep = new Set();
+  for (const dep of state.dependencies) {
+    if (!criticalDel.has(dep.from) || !criticalDel.has(dep.to)) continue;
+    const toData = deliverables.get(dep.to);
+    if (toData && toData.bestPreds && toData.bestPreds.includes(dep.from)) {
+      criticalDep.add(dep.id);
+    }
+  }
+
+  return { deliverables: criticalDel, dependencies: criticalDep };
+}
+
+function renderSwimlanes() {
+  const container = document.getElementById('swimlanes');
+  const daysPerCol = getDaysPerCol();
+  const colCount = state.zoom === 'day' ? 60 : state.zoom === 'week' ? 26 : 18;
+  const totalWidth = colCount * getColWidth();
+
+  try { _criticalResult = computeCriticalPath(); } catch(e) { _criticalResult = { deliverables: new Set(), dependencies: new Set() }; }
+  const criticalDeliverables = _criticalResult.deliverables;
+
+  container.innerHTML = state.workPackages.map((wp, i) => {
+    if (wp.visible === false) return '';
+    const wpColors = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316'];
+    const c = wpColors[i % wpColors.length];
+    const placed = wp.deliverables.filter(d => d.placed);
+
+    const bars = placed.map(d => {
+      const start = parseDate(d.startDate);
+      const end = parseDate(d.endDate);
+      const x = dateToX(start);
+      const w = Math.max(dateToX(end) - dateToX(start) + getPixelsPerDay(), 50);
+      const isCritical = criticalDeliverables.has(d.id) ? ' critical' : '';
+      return `
+      <div class="deliverable-bar ${d.isCustom ? 'custom' : ''}${d.id === state.selectedBarId ? ' selected' : ''}${isCritical}"
+           id="bar-${d.id}"
+           data-deliverable-id="${d.id}"
+           style="left:${x}px;top:4px;width:${w}px;background:linear-gradient(135deg,${c},${darken(c)});border:2px solid ${darken(c)};">
+        <div class="remove-btn" onclick="event.stopPropagation();removeDeliverableFromBoard('${d.id}')">✕</div>
+        <span class="bar-name" title="${escHtml(d.name)}">${d.isCustom?'✏️':'📄'} ${escHtml(d.name)}</span>
+        <span class="bar-dates">${formatDate(start)} → ${formatDate(end)}</span>
+        <div class="anchor-dot source" data-bar-id="${d.id}" data-anchor="source" title="Drag to create dependency"></div>
+        <div class="anchor-dot target" data-bar-id="${d.id}" data-anchor="target" title="Drop dependency here"></div>
+      </div>`;
+    }).join('');
+
+    return `
+    <div class="swimlane" data-wp-id="${wp.id}" id="swimlane-${wp.id}">
+      <div class="swimlane-header" oncontextmenu="showSwimlaneCtx(event, '${wp.id}')" style="border-left:3px solid ${c};">${escHtml(wp.name)}</div>
+      <div class="swimlane-body" id="swimlane-body-${wp.id}" style="min-width:${totalWidth}px;" data-wp-id="${wp.id}">
+        ${bars || ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  // After rendering swimlanes, setup interact for bars and swimlane bodies
+  setupInteract();
+}
+
+// ===== RENDER ARROWS =====
+function renderArrows() {
+  const svg = document.getElementById('arrows-svg');
+  const boardEl = document.getElementById('board');
+  const headerHeight = document.getElementById('timeline-header').offsetHeight || 32;
+  const totalW = (state.zoom === 'day' ? 60 : state.zoom === 'week' ? 26 : 18) * getColWidth();
+
+  const swimlanesEl = document.getElementById('swimlanes');
+  const boardHeight = Math.max(swimlanesEl.offsetHeight, boardEl.scrollHeight - headerHeight, 400);
+  svg.style.top = headerHeight + 'px';
+  svg.setAttribute('width', totalW);
+  svg.setAttribute('height', boardHeight);
+
+  let html = `<defs>
+    <marker id="arrowhead-seq" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#ef4444"/></marker>
+    <marker id="arrowhead-par" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#3b82f6"/></marker>
+    <marker id="arrowhead-critical" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#22c55e"/></marker>
+  </defs>`;
+
+  // Sort: critical dependencies rendered last so they appear on top
+  const sortedDeps = [...state.dependencies].sort((a, b) => {
+    const aCrit = _criticalResult.dependencies.has(a.id) ? 1 : 0;
+    const bCrit = _criticalResult.dependencies.has(b.id) ? 1 : 0;
+    return aCrit - bCrit;
+  });
+  sortedDeps.forEach((dep, idx) => {
+    const from = findDeliverableOnBoard(dep.from);
+    const to = findDeliverableOnBoard(dep.to);
+    if (!from || !to) return;
+
+    const fromWP = state.workPackages.find(wp => wp.id === from.wpId);
+    const toWP = state.workPackages.find(wp => wp.id === to.wpId);
+    if (!fromWP || !toWP || fromWP.visible === false || toWP.visible === false) return;
+
+    const fromEl = document.getElementById('bar-' + dep.from);
+    const toEl = document.getElementById('bar-' + dep.to);
+    const fromSwimlane = document.getElementById('swimlane-' + fromWP.id);
+    const toSwimlane = document.getElementById('swimlane-' + toWP.id);
+    if (!fromEl || !toEl || !fromSwimlane || !toSwimlane) return;
+
+    const fromRect = fromEl.getBoundingClientRect();
+    const toRect = toEl.getBoundingClientRect();
+    const fromSwimRect = fromSwimlane.getBoundingClientRect();
+    const toSwimRect = toSwimlane.getBoundingClientRect();
+
+    // SVG is position:absolute inside #board at left:180px, top:headerHeight.
+    // Use #board's bounding rect directly — it accounts for scroll position.
+    const boardRect = document.getElementById('board').getBoundingClientRect();
+    const headerColW = 180;
+
+    // SVG origin in viewport: left + headerColW, top + headerHeight
+    const originY = boardRect.top + headerHeight;
+
+    // Source: right edge of from bar (center y), relative to SVG
+    const sx = fromRect.right - boardRect.left - headerColW;
+    const sy = fromRect.top + fromRect.height/2 - originY;
+    // Target: left edge of to bar (center y)
+    const tx = toRect.left - boardRect.left - headerColW;
+    const ty = toRect.top + toRect.height/2 - originY;
+
+    const midX = sx + (tx - sx) * 0.4;
+
+    let path;
+    if (fromWP.id === toWP.id) {
+      // Same lane — route below bars
+      const offsetY = Math.max(sy, ty) + 20;
+      path = `M${sx},${sy} L${sx+8},${sy} L${sx+8},${offsetY} L${tx-8},${offsetY} L${tx-8},${ty} L${tx},${ty}`;
+    } else {
+      // Cross lane — route through lane boundary
+      const fromSwimBot = fromSwimRect.bottom - originY;
+      const toSwimTop = toSwimRect.top - originY;
+      const midY = (fromSwimBot + toSwimTop) / 2;
+      path = `M${sx},${sy} L${sx+8},${sy} L${sx+8},${midY} L${tx-8},${midY} L${tx-8},${ty} L${tx},${ty}`;
+    }
+
+    const isCritical = _criticalResult.dependencies.has(dep.id);
+    const color = isCritical ? '#22c55e' : '#ef4444';
+    const marker = isCritical ? 'url(#arrowhead-critical)' : 'url(#arrowhead-seq)';
+    const actualGap = (() => {
+      const fr = findDeliverable(dep.from);
+      const tr = findDeliverable(dep.to);
+      if (fr && tr && fr.deliverable.endDate && tr.deliverable.startDate) {
+        return Math.max(0, daysBetween(parseDate(fr.deliverable.endDate), parseDate(tr.deliverable.startDate)));
+      }
+      return dep.lag || 0;
+    })();
+    const lagStr = actualGap > 0 ? (actualGap >= 7 ? `+${Math.round(actualGap/7)}w` : `+${actualGap}d`) : '';
+    const label = isCritical ? `Critical${lagStr ? ' ' + lagStr : ''}` : `FS${lagStr}`;
+    const selClass = dep.id === state.selectedDepId ? ' selected' : '';
+
+    // Label position: middle of the horizontal segment
+    const labelX = (sx + tx) / 2;
+    const labelY = fromWP.id === toWP.id ? Math.max(sy, ty) + 16 :
+                   (fromSwimRect.bottom - originY + toSwimRect.top - originY) / 2 - 6;
+
+    html += `<path class="arrow-line${selClass}" data-dep-id="${dep.id}" d="${path}" stroke="${color}" stroke-width="1.8" fill="none" marker-end="${marker}" vector-effect="non-scaling-stroke"/>`;
+    html += `<circle cx="${sx}" cy="${sy}" r="3" fill="${color}" vector-effect="non-scaling-stroke"/>`;
+    html += `<circle cx="${tx}" cy="${ty}" r="3" fill="${color}" vector-effect="non-scaling-stroke"/>`;
+    html += `<rect x="${labelX - label.length*4 - 2}" y="${labelY}" width="${label.length*8 + 4}" height="14" rx="3" fill="white" stroke="${color}" stroke-width="0.8" class="arrow-label-bg"/>`;
+    html += `<text x="${labelX}" y="${labelY + 10}" fill="${color}" font-size="8" font-weight="700" text-anchor="middle" vector-effect="non-scaling-stroke">${label}</text>`;
+  });
+
+  svg.innerHTML = html;
+
+  // Attach click handlers to arrows
+  svg.querySelectorAll('.arrow-line').forEach(path => {
+    path.style.pointerEvents = 'stroke';
+    path.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Toggle selection: clicking selected arrow deselects it
+      if (state.selectedDepId === path.dataset.depId) {
+        state.selectedDepId = null;
+        path.classList.remove('selected');
+      } else {
+        // Deselect previous arrow, select current
+        const prev = svg.querySelector('.arrow-line.selected');
+        if (prev) prev.classList.remove('selected');
+        state.selectedDepId = path.dataset.depId;
+        path.classList.add('selected');
+        // Clear bar selection
+        if (state.selectedBarId) {
+          const prevBar = document.querySelector('.deliverable-bar.selected');
+          if (prevBar) prevBar.classList.remove('selected');
+          state.selectedBarId = null;
+        }
+      }
+      showArrowCtx(e, path.dataset.depId);
+    });
+  });
+}
+
+function findDeliverableOnBoard(id) {
+  for (const wp of state.workPackages) {
+    const d = wp.deliverables.find(d => d.id === id);
+    if (d && d.placed && wp.visible !== false) return { wpId: wp.id, deliverable: d };
+  }
+  return null;
+}
+
+function darken(hex) {
+  let r, g, b;
+  if (hex.startsWith('#')) {
+    const num = parseInt(hex.slice(1), 16);
+    r = (num >> 16) & 0xff;
+    g = (num >> 8) & 0xff;
+    b = num & 0xff;
+  } else { r=59; g=130; b=246; }
+  r = Math.max(0, r-30); g = Math.max(0, g-30); b = Math.max(0, b-30);
+  return `rgb(${r},${g},${b})`;
+}
+
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ===== INTERACT.JS SETUP =====
+function setupInteract() {
+  // Make deliverable bars draggable (horizontal only)
+  interact('.deliverable-bar').draggable({
+    inertia: false,
+    modifiers: [
+      interact.modifiers.restrictRect({ restriction: 'parent' })
+    ],
+    listeners: {
+      start(e) {
+        e.target.style.zIndex = 10;
+        pushUndo();
+        // Capture original duration so bar length stays fixed during drag
+        const bar = e.target;
+        const d = findDeliverable(bar.dataset.deliverableId);
+        if (d && d.deliverable.startDate && d.deliverable.endDate) {
+          bar.dataset.dragDuration = daysBetween(parseDate(d.deliverable.startDate), parseDate(d.deliverable.endDate)) + 1;
+        }
+      },
+      move(e) {
+        const bar = e.target;
+        const currentLeft = parseFloat(bar.style.left) || 0;
+        const newLeft = Math.max(0, currentLeft + e.dx);
+        bar.style.left = newLeft + 'px';
+        const durDays = bar.dataset.dragDuration ? parseInt(bar.dataset.dragDuration) : undefined;
+        updateBarDateFromPosition(bar.dataset.deliverableId, newLeft, parseFloat(bar.style.width) || 100, durDays);
+      },
+      end(e) {
+        e.target.style.zIndex = 2;
+        const bar = e.target;
+        const left = parseFloat(bar.style.left) || 0;
+        const width = parseFloat(bar.style.width) || 100;
+        const durDays = bar.dataset.dragDuration ? parseInt(bar.dataset.dragDuration) : undefined;
+        updateBarDateFromPosition(bar.dataset.deliverableId, left, width, durDays);
+        pruneInvalidDependencies(bar.dataset.deliverableId);
+        fitViewStart();
+        renderAll();
+        saveToLocalStorage();
+      }
+    }
+  }).resizable({
+    edges: { left: true, right: true, bottom: false, top: false },
+    modifiers: [
+      interact.modifiers.restrictSize({ min: { width: 30 } })
+    ],
+    listeners: {
+      start(e) { pushUndo(); },
+      move(e) {
+        const bar = e.target;
+        let left = parseFloat(bar.style.left) || 0;
+        let width = parseFloat(bar.style.width) || 100;
+
+        if (e.edges.left) {
+          left += e.deltaRect.left;
+          width -= e.deltaRect.left;
+        }
+        if (e.edges.right) {
+          width += e.deltaRect.right;
+        }
+
+        if (width < 30) width = 30;
+        if (left < 0) { width += left; left = 0; }
+
+        Object.assign(bar.style, { left: left + 'px', width: width + 'px' });
+        updateBarDateFromPosition(bar.dataset.deliverableId, left, width);
+      },
+      end(e) {
+        const bar = e.target;
+        updateBarDateFromPosition(bar.dataset.deliverableId, parseFloat(bar.style.left), parseFloat(bar.style.width));
+        pruneInvalidDependencies(bar.dataset.deliverableId);
+        fitViewStart();
+        renderAll();
+        saveToLocalStorage();
+      }
+    }
+  });
+
+  // Make both source and target anchor dots draggable (for creating arrows)
+  function setupAnchorDrag(selector, isSource) {
+    interact(selector).draggable({
+      listeners: {
+        start(e) {
+          document.body.classList.add('dragging-arrow');
+          e.target.style.transform = 'scale(1.5)';
+
+          const bar = e.target.closest('.deliverable-bar');
+          const barRect = bar.getBoundingClientRect();
+          const boardRect = document.getElementById('board').getBoundingClientRect();
+          const headerH = document.getElementById('timeline-header').offsetHeight || 32;
+          const headerColW = 180;
+
+          const originX = boardRect.left + headerColW;
+          const originY = boardRect.top + headerH;
+
+          // Source drag: line from right edge. Target drag: line from left edge.
+          const sx = isSource ? barRect.right - originX : barRect.left - originX;
+          const sy = barRect.top + barRect.height / 2 - originY;
+
+          e.target._prev = { originX, originY, sx, sy };
+
+          const svg = document.getElementById('arrows-svg');
+          let preview = document.getElementById('drag-preview-line');
+          if (!preview) {
+            preview = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            preview.id = 'drag-preview-line';
+            preview.setAttribute('fill', 'none');
+            preview.setAttribute('stroke', '#6b7280');
+            preview.setAttribute('stroke-width', '1.5');
+            preview.setAttribute('stroke-dasharray', '6,4');
+            preview.setAttribute('pointer-events', 'none');
+            svg.appendChild(preview);
+          }
+          preview.setAttribute('d', `M${sx},${sy} L${sx},${sy}`);
+          preview.style.display = '';
+        },
+        move(e) {
+          const prev = e.target._prev;
+          if (!prev) return;
+          const mx = e.clientX - prev.originX;
+          const my = e.clientY - prev.originY;
+          const preview = document.getElementById('drag-preview-line');
+          if (preview) {
+            preview.setAttribute('d', `M${prev.sx},${prev.sy} L${mx},${my}`);
+          }
+        },
+        end(e) {
+          document.body.classList.remove('dragging-arrow');
+          e.target.style.transform = '';
+
+          const preview = document.getElementById('drag-preview-line');
+          if (preview) preview.style.display = 'none';
+
+          const draggedBarId = e.target.dataset.barId;
+          const dropTarget = document.elementFromPoint(e.clientX, e.clientY);
+          if (!dropTarget) return;
+
+          if (isSource) {
+            // Dragging from red (source) dot → dropped-on bar is the successor
+            if (dropTarget.classList.contains('anchor-dot') && dropTarget.dataset.anchor === 'target') {
+              const targetId = dropTarget.dataset.barId;
+              if (draggedBarId !== targetId) createDependency(draggedBarId, targetId);
+              return;
+            }
+            const bar = dropTarget.closest('.deliverable-bar');
+            if (bar) {
+              const targetId = bar.dataset.deliverableId;
+              if (targetId && draggedBarId !== targetId) createDependency(draggedBarId, targetId);
+            }
+          } else {
+            // Dragging from blue (target) dot → dropped-on bar is the predecessor
+            if (dropTarget.classList.contains('anchor-dot') && dropTarget.dataset.anchor === 'source') {
+              const sourceId = dropTarget.dataset.barId;
+              if (draggedBarId !== sourceId) createDependency(sourceId, draggedBarId);
+              return;
+            }
+            const bar = dropTarget.closest('.deliverable-bar');
+            if (bar) {
+              const sourceId = bar.dataset.deliverableId;
+              if (sourceId && draggedBarId !== sourceId) createDependency(sourceId, draggedBarId);
+            }
+          }
+        }
+      }
+    });
+  }
+  setupAnchorDrag('.anchor-dot.source', true);
+  setupAnchorDrag('.anchor-dot.target', false);
+
+  // Setup swimlane body for double-click to create custom
+  document.querySelectorAll('.swimlane-body').forEach(body => {
+    body.ondblclick = function(e) {
+      if (e.target === body || e.target.classList.contains('drop-hint')) {
+        const wpId = body.dataset.wpId;
+        const rect = body.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        quickCreateDeliverable(wpId, x);
+      }
+    };
+  });
+
+  // Setup deliverable bars for double-click to edit
+  document.querySelectorAll('.deliverable-bar').forEach(bar => {
+    bar.ondblclick = function(e) {
+      e.stopPropagation();
+      openDetailPopup(bar.dataset.deliverableId);
+    };
+  });
+}
+
+function updateBarDateFromPosition(id, left, width, durDays) {
+  const result = findDeliverable(id);
+  if (!result) return;
+
+  const newStart = xToDate(left);
+  // Use explicit durDays when provided (drag — preserve duration), otherwise compute from pixel width (resize)
+  const days = durDays !== undefined ? durDays : Math.max(1, Math.round(width / getPixelsPerDay()));
+  const newEnd = addDays(newStart, days - 1);
+  result.deliverable.startDate = dateStr(newStart);
+  result.deliverable.endDate = dateStr(newEnd);
+
+  // Update visible date pill
+  const bar = document.getElementById('bar-' + id);
+  if (bar) {
+    const dateSpan = bar.querySelector('.bar-dates');
+    if (dateSpan) dateSpan.textContent = `${formatDate(newStart)} → ${formatDate(newEnd)}`;
+  }
+}
+
+function placeDeliverableOnBoard(deliverableId, wpId, dropX) {
+  const result = findDeliverable(deliverableId);
+  if (!result || result.wp.id !== wpId) {
+    // If different WP, move deliverable to that WP
+    moveDeliverableToWP(deliverableId, wpId);
+  }
+
+  const result2 = findDeliverable(deliverableId);
+  if (!result2) return;
+
+  pushUndo();
+  const startDate = xToDate(dropX);
+  const endDate = addDays(startDate, state.zoom === 'day' ? 1 : 7);
+  result2.deliverable.placed = true;
+  result2.deliverable.startDate = dateStr(startDate);
+  result2.deliverable.endDate = dateStr(endDate);
+
+  // Defer render to let native drag/drop lifecycle complete, then force repaint to clear ghost
+  setTimeout(() => {
+    renderAll();
+    // Force browser repaint to clear any native drag ghost artifact
+    const board = document.getElementById('board');
+    board.style.transform = 'translateZ(0)';
+    board.offsetHeight;
+    board.style.transform = '';
+  }, 50);
+  saveToLocalStorage();
+}
+
+function moveDeliverableToWP(deliverableId, newWPId) {
+  // Find and remove from old WP
+  for (const wp of state.workPackages) {
+    const idx = wp.deliverables.findIndex(d => d.id === deliverableId);
+    if (idx >= 0) {
+      const [d] = wp.deliverables.splice(idx, 1);
+      // Add to new WP
+      const newWP = state.workPackages.find(w => w.id === newWPId);
+      if (newWP) newWP.deliverables.push(d);
+      return;
+    }
+  }
+}
+
+function quickCreateDeliverable(wpId, x) {
+  const name = prompt('Enter deliverable name:');
+  if (!name || !name.trim()) return;
+
+  const wp = state.workPackages.find(w => w.id === wpId);
+  if (!wp) return;
+
+  pushUndo();
+  const startDate = xToDate(x);
+  const d = {
+    id: uuid(),
+    name: name.trim(),
+    acceptanceCriteria: '',
+    reasonOfDeviation: '',
+    isCustom: true,
+    placed: true,
+    startDate: dateStr(startDate),
+    endDate: dateStr(addDays(startDate, 7))
+  };
+  wp.deliverables.push(d);
+  renderAll();
+  saveToLocalStorage();
+}
+
+function removeDeliverableFromBoard(id) {
+  const result = findDeliverable(id);
+  if (!result) return;
+  pushUndo();
+  result.deliverable.placed = false;
+  result.deliverable.startDate = null;
+  result.deliverable.endDate = null;
+  // Remove dependencies involving this deliverable
+  state.dependencies = state.dependencies.filter(d => d.from !== id && d.to !== id);
+  renderAll();
+  saveToLocalStorage();
+  showToast('Deliverable removed from board');
+}
+
+// Pre-create blank drag image (must be in DOM for setDragImage to work in all browsers)
+// Transparent 1x1 image to suppress native browser drag ghost.
+// Must have actual pixel content (fully transparent) — an empty canvas doesn't
+// always override the default drag image in all browsers.
+const BLANK_DRAG_IMG = document.createElement('canvas');
+BLANK_DRAG_IMG.width = 1;
+BLANK_DRAG_IMG.height = 1;
+BLANK_DRAG_IMG.style.cssText = 'position:fixed;left:-100px;top:-100px;pointer-events:none;';
+const bctx = BLANK_DRAG_IMG.getContext('2d');
+bctx.clearRect(0, 0, 1, 1);
+document.body.appendChild(BLANK_DRAG_IMG);
+
+// ===== DRAG FROM SIDEBAR =====
+function dragFromSidebar(e, id) {
+  e.dataTransfer.setData('text/plain', id);
+  e.dataTransfer.effectAllowed = 'move';
+  // Suppress native browser drag ghost
+  e.dataTransfer.setDragImage(BLANK_DRAG_IMG, 0, 0);
+
+  const ghost = document.getElementById('drag-ghost');
+  const result = findDeliverable(id);
+  if (result) {
+    ghost.textContent = '\u{1F4C4} ' + result.deliverable.name;
+    ghost.style.display = 'block';
+  }
+
+  document.body.classList.add('dragging-from-sidebar');
+  document.addEventListener('dragover', handleSidebarDragOver);
+  document.addEventListener('drop', handleSidebarDrop);
+  document.addEventListener('dragend', () => {
+    document.body.classList.remove('dragging-from-sidebar');
+    ghost.style.display = 'none';
+    document.removeEventListener('dragover', handleSidebarDragOver);
+    document.removeEventListener('drop', handleSidebarDrop);
+  }, { once: true });
+}
+
+function handleSidebarDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const ghost = document.getElementById('drag-ghost');
+  ghost.style.left = e.clientX + 'px';
+  ghost.style.top = e.clientY + 'px';
+
+  // Highlight parent WP's swimlane (deliverable auto-snaps to its parent lane)
+  const id = e.dataTransfer.getData('text/plain');
+  document.querySelectorAll('.swimlane-body').forEach(b => b.classList.remove('drag-over'));
+  if (id) {
+    const result = findDeliverable(id);
+    if (result) {
+      const homeBody = document.getElementById('swimlane-body-' + result.wp.id);
+      if (homeBody) homeBody.classList.add('drag-over');
+    }
+  }
+}
+
+function handleSidebarDrop(e) {
+  e.preventDefault();
+  document.querySelectorAll('.swimlane-body').forEach(b => b.classList.remove('drag-over'));
+  const id = e.dataTransfer.getData('text/plain');
+  if (!id) return;
+
+  // Find the deliverable's parent WP and drop onto its lane regardless of cursor position
+  const result = findDeliverable(id);
+  if (!result) return;
+  const wpId = result.wp.id;
+
+  const target = document.elementFromPoint(e.clientX, e.clientY);
+  if (!target) return;
+  const body = target.closest('.swimlane-body');
+  const swimlaneBody = body || document.getElementById('swimlane-body-' + wpId);
+  if (!swimlaneBody) return;
+
+  const rect = swimlaneBody.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  placeDeliverableOnBoard(id, wpId, x);
+}
+
+// ===== DEPENDENCIES =====
+function createDependency(fromId, toId) {
+  // Check for duplicate
+  if (state.dependencies.find(d => d.from === fromId && d.to === toId)) {
+    showToast('Dependency already exists');
+    return;
+  }
+
+  // Validate dates: predecessor must end on or before successor starts
+  const fromResult = findDeliverable(fromId);
+  const toResult = findDeliverable(toId);
+  if (fromResult && toResult && fromResult.deliverable.endDate && toResult.deliverable.startDate) {
+    const fromEnd = parseDate(fromResult.deliverable.endDate);
+    const toStart = parseDate(toResult.deliverable.startDate);
+    if (fromEnd > toStart) {
+      showToast('Cannot create dependency: predecessor ends after successor starts');
+      return;
+    }
+  }
+
+  pushUndo();
+
+  // Calculate lag
+  let lag = 0;
+  if (fromResult && toResult && fromResult.deliverable.endDate && toResult.deliverable.startDate) {
+    lag = daysBetween(parseDate(fromResult.deliverable.endDate), parseDate(toResult.deliverable.startDate));
+  }
+
+  state.dependencies.push({
+    id: uuid(),
+    from: fromId,
+    to: toId,
+    type: 'sequential',
+    lag: Math.max(0, lag)
+  });
+
+  renderAll();
+  saveToLocalStorage();
+  showToast('Dependency created');
+}
+
+function fitViewStart() {
+  // If any placed deliverable starts before the timeline, shift viewStart back
+  let earliest = null;
+  for (const wp of state.workPackages) {
+    if (wp.visible === false) continue;
+    for (const d of wp.deliverables) {
+      if (!d.placed || !d.startDate) continue;
+      const s = parseDate(d.startDate);
+      if (!earliest || s < earliest) earliest = s;
+    }
+  }
+  if (earliest) {
+    state.viewStart = new Date(earliest);
+  }
+}
+
+function pruneInvalidDependencies(deliverableId) {
+  // Remove dependencies where predecessor ends after successor starts
+  const before = state.dependencies.length;
+  state.dependencies = state.dependencies.filter(dep => {
+    // Only check dependencies involving the changed deliverable
+    if (deliverableId && dep.from !== deliverableId && dep.to !== deliverableId) return true;
+    const from = findDeliverable(dep.from);
+    const to = findDeliverable(dep.to);
+    if (!from || !to || !from.deliverable.endDate || !to.deliverable.startDate) return true;
+    const fromEnd = parseDate(from.deliverable.endDate);
+    const toStart = parseDate(to.deliverable.startDate);
+    return fromEnd <= toStart;
+  });
+  const removed = before - state.dependencies.length;
+  if (removed > 0) {
+    showToast(`Removed ${removed} invalid dependenc${removed > 1 ? 'ies' : 'y'} (predecessor ends after successor)`);
+  }
+}
+
+function deleteDependency(depId) {
+  pushUndo();
+  state.dependencies = state.dependencies.filter(d => d.id !== depId);
+  renderAll();
+  saveToLocalStorage();
+  showToast('Dependency deleted');
+}
+
+// ===== CONTEXT MENUS =====
+let ctxTargetId = null;
+
+function showArrowCtx(e, depId) {
+  e.preventDefault();
+  ctxTargetId = depId;
+  const menu = document.getElementById('ctx-menu');
+  menu.style.display = 'block';
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+
+  menu.querySelector('[data-action="delete-arrow"]').onclick = () => { deleteDependency(depId); hideCtx(); };
+}
+
+function showSwimlaneCtx(e, wpId) {
+  e.preventDefault();
+  ctxTargetId = wpId;
+  const menu = document.getElementById('ctx-menu-swimlane');
+  menu.style.display = 'block';
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.querySelector('[data-action="hide-wp"]').onclick = () => { hideWP(wpId); hideCtx(); };
+}
+
+document.addEventListener('click', (e) => {
+  // Click on a deliverable bar → toggle selection
+  const bar = e.target.closest('.deliverable-bar');
+  if (bar && !e.target.closest('.anchor-dot') && !e.target.closest('.remove-btn')) {
+    if (state.selectedBarId === bar.dataset.deliverableId) {
+      state.selectedBarId = null;
+      bar.classList.remove('selected');
+    } else {
+      const prev = document.querySelector('.deliverable-bar.selected');
+      if (prev) prev.classList.remove('selected');
+      state.selectedBarId = bar.dataset.deliverableId;
+      bar.classList.add('selected');
+      // Clear arrow selection
+      if (state.selectedDepId) {
+        state.selectedDepId = null;
+        renderArrows();
+      }
+    }
+  } else if (!e.target.closest('.arrow-line') && !e.target.closest('.context-menu')) {
+    // Click on empty space → deselect bar
+    if (state.selectedBarId) {
+      const prev = document.querySelector('.deliverable-bar.selected');
+      if (prev) prev.classList.remove('selected');
+      state.selectedBarId = null;
+    }
+  }
+  hideCtx();
+});
+function hideCtx() {
+  document.querySelectorAll('.context-menu').forEach(m => m.style.display = 'none');
+  ctxTargetId = null;
+  // Deselect arrow when clicking empty space
+  if (state.selectedDepId) {
+    state.selectedDepId = null;
+    renderArrows();
+  }
+}
+
+function hideWP(wpId) {
+  const wp = state.workPackages.find(w => w.id === wpId);
+  if (wp) {
+    pushUndo();
+    wp.visible = false;
+    renderAll();
+    saveToLocalStorage();
+    showToast(`"${wp.name}" hidden`);
+  }
+}
+
+function restoreWP(wpId) {
+  const wp = state.workPackages.find(w => w.id === wpId);
+  if (wp) {
+    pushUndo();
+    wp.visible = true;
+    renderAll();
+    saveToLocalStorage();
+    showToast(`"${wp.name}" restored`);
+  }
+}
+
+// ===== MODAL =====
+let modalDeliverableId = null;
+
+function openDetailPopup(id) {
+  const result = findDeliverable(id);
+  if (!result) return;
+  modalDeliverableId = id;
+
+  document.getElementById('modal-name').value = result.deliverable.name;
+  document.getElementById('modal-name').readOnly = !result.deliverable.isCustom;
+  document.getElementById('modal-start').value = result.deliverable.startDate || '';
+  document.getElementById('modal-end').value = result.deliverable.endDate || '';
+  const s = result.deliverable.startDate ? parseDate(result.deliverable.startDate) : null;
+  const e = result.deliverable.endDate ? parseDate(result.deliverable.endDate) : null;
+  const dur = (s && e) ? daysBetween(s, e) + 1 : 1;
+  document.getElementById('modal-duration').value = dur;
+  document.getElementById('modal-criteria').value = result.deliverable.acceptanceCriteria || 'N/A';
+
+  // WP dropdown
+  const wpSel = document.getElementById('modal-wp');
+  wpSel.innerHTML = state.workPackages.map(wp =>
+    `<option value="${wp.id}" ${wp.id === result.wp.id ? 'selected' : ''}>${escHtml(wp.name)}</option>`
+  ).join('');
+
+  // Dependencies list
+  const depsIn = state.dependencies.filter(d => d.to === id);
+  const depsOut = state.dependencies.filter(d => d.from === id);
+  document.getElementById('modal-deps').innerHTML =
+    (depsIn.length ? '<strong>Depends on:</strong><br>' + depsIn.map(d => {
+      const f = findDeliverable(d.from);
+      return f ? `← ${escHtml(f.deliverable.name)} (${d.type})` : '';
+    }).filter(Boolean).join('<br>') : '') +
+    (depsOut.length ? '<br><strong>Blocks:</strong><br>' + depsOut.map(d => {
+      const t = findDeliverable(d.to);
+      return t ? `→ ${escHtml(t.deliverable.name)} (${d.type})` : '';
+    }).filter(Boolean).join('<br>') : '') || 'No dependencies';
+
+  document.getElementById('modal-delete').style.display = result.deliverable.isCustom ? 'block' : 'none';
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+  modalDeliverableId = null;
+}
+
+document.getElementById('modal-cancel').onclick = closeModal;
+document.getElementById('modal-overlay').onclick = function(e) { if (e.target === this) closeModal(); };
+
+// Sync start/end/duration fields in modal
+let _modalSyncing = false;
+
+document.getElementById('modal-start').onchange = function() {
+  if (_modalSyncing) return;
+  const s = document.getElementById('modal-start').value;
+  const dur = parseInt(document.getElementById('modal-duration').value) || 1;
+  if (s) {
+    _modalSyncing = true;
+    document.getElementById('modal-end').value = dateStr(addDays(parseDate(s), dur - 1));
+    _modalSyncing = false;
+  }
+};
+
+document.getElementById('modal-end').onchange = function() {
+  if (_modalSyncing) return;
+  const e = document.getElementById('modal-end').value;
+  const dur = parseInt(document.getElementById('modal-duration').value) || 1;
+  if (e) {
+    _modalSyncing = true;
+    document.getElementById('modal-start').value = dateStr(addDays(parseDate(e), -(dur - 1)));
+    _modalSyncing = false;
+  }
+};
+
+document.getElementById('modal-duration').onchange = function() {
+  if (_modalSyncing) return;
+  const s = document.getElementById('modal-start').value;
+  const dur = parseInt(document.getElementById('modal-duration').value) || 1;
+  if (dur < 1) { document.getElementById('modal-duration').value = 1; return; }
+  if (s) {
+    _modalSyncing = true;
+    document.getElementById('modal-end').value = dateStr(addDays(parseDate(s), dur - 1));
+    _modalSyncing = false;
+  }
+};
+
+document.getElementById('modal-save').onclick = function() {
+  if (!modalDeliverableId) return;
+  const result = findDeliverable(modalDeliverableId);
+  if (!result) return;
+
+  pushUndo();
+  result.deliverable.name = document.getElementById('modal-name').value.trim() || result.deliverable.name;
+  result.deliverable.startDate = document.getElementById('modal-start').value;
+  result.deliverable.endDate = document.getElementById('modal-end').value;
+
+  // Handle WP change
+  const newWPId = document.getElementById('modal-wp').value;
+  if (newWPId !== result.wp.id) {
+    moveDeliverableToWP(modalDeliverableId, newWPId);
+  }
+
+  pruneInvalidDependencies(modalDeliverableId);
+  fitViewStart();
+    closeModal();
+  renderAll();
+  saveToLocalStorage();
+  showToast('Changes saved');
+};
+
+document.getElementById('modal-delete').onclick = function() {
+  if (!modalDeliverableId) return;
+  const result = findDeliverable(modalDeliverableId);
+  if (!result || !result.deliverable.isCustom) return;
+
+  if (confirm(`Delete "${result.deliverable.name}" permanently?`)) {
+    pushUndo();
+    result.wp.deliverables = result.wp.deliverables.filter(d => d.id !== modalDeliverableId);
+    state.dependencies = state.dependencies.filter(d => d.from !== modalDeliverableId && d.to !== modalDeliverableId);
+    closeModal();
+    renderAll();
+    saveToLocalStorage();
+    showToast('Deliverable deleted');
+  }
+};
+
+// ===== CUSTOM DELIVERABLE =====
+document.getElementById('btn-add-custom').onclick = function() {
+  const name = document.getElementById('custom-name').value.trim();
+  const wpId = document.getElementById('custom-wp').value;
+  if (!name) { showToast('Enter a name'); return; }
+  if (!wpId) { showToast('Select a work package'); return; }
+
+  const wp = state.workPackages.find(w => w.id === wpId);
+  if (!wp) return;
+
+  wp.deliverables.push({
+    id: uuid(),
+    name: name,
+    acceptanceCriteria: '',
+    reasonOfDeviation: '',
+    isCustom: true,
+    placed: false,
+    startDate: null,
+    endDate: null
+  });
+
+  document.getElementById('custom-name').value = '';
+  renderAll();
+  saveToLocalStorage();
+  showToast('Custom deliverable added');
+};
+
+// ===== ZOOM & NAVIGATION =====
+document.querySelectorAll('.zoom-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.zoom-btn').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    state.zoom = this.dataset.zoom;
+    document.getElementById('zoom-label').textContent = this.textContent + ' View';
+    renderAll();
+  });
+});
+
+document.getElementById('btn-nav-prev').onclick = function() {
+  const daysPerCol = getDaysPerCol();
+  const count = state.zoom === 'day' ? 60 : state.zoom === 'week' ? 26 : 18;
+  state.viewStart = addDays(state.viewStart, -daysPerCol * Math.floor(count / 3));
+  renderAll();
+};
+
+document.getElementById('btn-nav-next').onclick = function() {
+  const daysPerCol = getDaysPerCol();
+  const count = state.zoom === 'day' ? 60 : state.zoom === 'week' ? 26 : 18;
+  state.viewStart = addDays(state.viewStart, daysPerCol * Math.floor(count / 3));
+  renderAll();
+};
+
+document.getElementById('btn-today').onclick = function() {
+  state.viewStart = new Date();
+  state.viewStart.setDate(1); // Start of current month
+  renderAll();
+};
+
+function updateDateLabel() {
+  const daysPerCol = getDaysPerCol();
+  const count = state.zoom === 'day' ? 60 : state.zoom === 'week' ? 26 : 18;
+  const end = addDays(state.viewStart, daysPerCol * count - 1);
+  document.getElementById('date-range-label').textContent =
+    `${formatDate(state.viewStart)} — ${formatDate(end)}`;
+}
+
+function updateTopBar() {
+  // Project name
+  document.getElementById('project-label').textContent = state.projectName || 'Untitled';
+
+  // Compute overall project date range from placed deliverables
+  let minDate = null, maxDate = null;
+  for (const wp of state.workPackages) {
+    if (wp.visible === false) continue;
+    for (const d of wp.deliverables) {
+      if (!d.placed || !d.startDate || !d.endDate) continue;
+      const sd = parseDate(d.startDate);
+      const ed = parseDate(d.endDate);
+      if (!minDate || sd < minDate) minDate = sd;
+      if (!maxDate || ed > maxDate) maxDate = ed;
+    }
+  }
+  const summary = document.getElementById('schedule-summary');
+  if (minDate && maxDate) {
+    const duration = daysBetween(minDate, maxDate) + 1;
+    summary.textContent = `${formatDate(minDate)} → ${formatDate(maxDate)} · ${duration} days`;
+  } else {
+    summary.textContent = '';
+  }
+}
+
+// ===== EXCEL IMPORT =====
+document.getElementById('btn-import').onclick = function() { document.getElementById('import-file-input').click(); };
+document.getElementById('btn-empty-import').onclick = function() { document.getElementById('import-file-input').click(); };
+
+// Create hidden file input
+const fileInput = document.createElement('input');
+fileInput.type = 'file';
+fileInput.id = 'import-file-input';
+fileInput.accept = '.xlsx,.xls';
+fileInput.style.display = 'none';
+fileInput.onchange = handleExcelImport;
+document.body.appendChild(fileInput);
+
+function handleExcelImport(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const data = new Uint8Array(ev.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+
+      // Use Sheet 2: WBS3_Required_Deviation (or fallback to first sheet)
+      let sheetName = wb.SheetNames.find(s => s.includes('Deviation')) || wb.SheetNames[1] || wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+      if (rows.length < 2) { showToast('No data found in Excel'); return; }
+
+      // Find column indices from header
+      const header = rows[0];
+      const findCol = (names) => {
+        for (const name of names) {
+          const idx = header.findIndex(h => h && h.toString().trim().toLowerCase().includes(name.toLowerCase()));
+          if (idx >= 0) return idx;
+        }
+        return -1;
+      };
+
+      const colWPName = findCol(['Work Package Name', 'work package name']);
+      const colWPCat = findCol(['Work Package Category', 'category']);
+      const colDelName = findCol(['Deliverable Name', 'deliverable name']);
+      const colCriteria = findCol(['Deliverable Acceptance Criteria', 'acceptance criteria']);
+      const colDeviation = findCol(['Reason of Deviation', 'deviation']);
+      const colWPNum = findCol(['Work Package Number', 'work package number']);
+
+      if (colWPName < 0 || colDelName < 0) { showToast('Could not find required columns'); return; }
+
+      // Parse data
+      const wpMap = new Map();
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || !row[colWPName] || !row[colDelName]) continue;
+
+        const wpName = row[colWPName].toString().trim();
+        const wpCat = colWPCat >= 0 ? (row[colWPCat] || '').toString().trim() : '';
+        const wpNum = colWPNum >= 0 ? (row[colWPNum] || '').toString().trim() : '';
+        const delName = row[colDelName].toString().trim();
+        const criteria = colCriteria >= 0 ? (row[colCriteria] || '').toString().trim() : '';
+        const deviation = colDeviation >= 0 ? (row[colDeviation] || '').toString().trim() : '';
+
+        if (!wpMap.has(wpNum)) {
+          wpMap.set(wpNum, {
+            id: wpNum || uuid(),
+            name: wpName,
+            category: wpCat,
+            number: wpNum,
+            visible: true,
+            _expanded: false,
+            deliverables: []
+          });
+        }
+
+        wpMap.get(wpNum).deliverables.push({
+          id: uuid(),
+          name: delName,
+          acceptanceCriteria: criteria,
+          reasonOfDeviation: deviation,
+          isCustom: false,
+          placed: false,
+          startDate: null,
+          endDate: null
+        });
+      }
+
+      state.workPackages = Array.from(wpMap.values());
+      state.viewStart = new Date();
+      state.viewStart.setDate(1);
+      state.dependencies = [];
+
+      state.projectName = `WB3 — ${file.name}`;
+      renderAll();
+      saveToLocalStorage();
+      showToast(`Loaded ${wpMap.size} work packages, ${Array.from(wpMap.values()).reduce((s,wp) => s + wp.deliverables.length, 0)} deliverables`);
+    } catch(err) {
+      showToast('Error reading file: ' + err.message);
+      console.error(err);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ===== JSON EXPORT/IMPORT =====
+document.getElementById('btn-export-json').onclick = function() {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `pif-schedule-${dateStr(new Date())}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Schedule exported');
+};
+
+document.getElementById('btn-import-json').onclick = function() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (data.workPackages && data.dependencies !== undefined) {
+          state.workPackages = data.workPackages;
+          state.dependencies = data.dependencies;
+          state.zoom = data.zoom || 'week';
+          state.viewStart = new Date(data.viewStart) || new Date();
+          state.projectName = data.projectName || 'Loaded from JSON';
+          renderAll();
+          saveToLocalStorage();
+          showToast('Schedule loaded');
+        } else {
+          showToast('Invalid schedule file');
+        }
+      } catch(err) {
+        showToast('Error parsing JSON: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+};
+
+// ===== PERSISTENCE =====
+function saveToLocalStorage() {
+  try {
+    localStorage.setItem('pif-schedule-state', JSON.stringify(state));
+  } catch(e) { /* ignore quota errors */ }
+}
+
+function loadFromLocalStorage() {
+  try {
+    const saved = localStorage.getItem('pif-schedule-state');
+    if (saved) {
+      const data = JSON.parse(saved);
+      state.workPackages = data.workPackages || [];
+      state.dependencies = data.dependencies || [];
+      state.zoom = data.zoom || 'week';
+      state.viewStart = data.viewStart ? new Date(data.viewStart) : new Date();
+      state.projectName = data.projectName || 'Restored from storage';
+      if (state.workPackages.length > 0) {
+        return;
+      }
+    }
+  } catch(e) { /* ignore */ }
+  // Fall back to embedded template (from Required in WB3.xlsx)
+  state.workPackages = JSON.parse(JSON.stringify(EMBEDDED_TEMPLATE));
+  state.projectName = 'WB3 — Template';
+}
+
+// ===== TOAST =====
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(toast._timeout);
+  toast._timeout = setTimeout(() => toast.classList.remove('show'), 2000);
+}
+
+// ===== EMPTY STATE =====
+function renderEmptyState() {
+  const empty = document.getElementById('empty-state');
+  const board = document.getElementById('board-scroll');
+  if (state.workPackages.length === 0) {
+    empty.style.display = 'flex';
+    board.style.display = 'none';
+  } else {
+    empty.style.display = 'none';
+    board.style.display = 'block';
+  }
+}
+
+// ===== TOGGLE WP =====
+function toggleWP(wpId) {
+  const wp = state.workPackages.find(w => w.id === wpId);
+  if (wp) {
+    wp._expanded = wp._expanded === false ? true : false;
+    renderWPTree();
+  }
+}
+
+// ===== KEYBOARD SHORTCUTS =====
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeModal();
+    hideCtx();
+    // Clear bar selection on Escape too
+    if (state.selectedBarId) {
+      const prev = document.querySelector('.deliverable-bar.selected');
+      if (prev) prev.classList.remove('selected');
+      state.selectedBarId = null;
+    }
+  }
+  if (e.key === 'Delete' && !e.target.closest('input,textarea,select,[contenteditable]')) {
+    if (state.selectedBarId) {
+      removeDeliverableFromBoard(state.selectedBarId);
+      state.selectedBarId = null;
+    } else if (state.selectedDepId) {
+      deleteDependency(state.selectedDepId);
+      state.selectedDepId = null;
+    }
+  }
+  if (e.ctrlKey && e.key === 'z' && !e.target.closest('input,textarea,select,[contenteditable]')) {
+    e.preventDefault();
+    performUndo();
+  }
+});
+
+// ===== PROJECT NAME EDITING =====
+document.getElementById('project-label').addEventListener('dblclick', function() {
+  const span = this;
+  if (span.classList.contains('editing')) return;
+  span.classList.add('editing');
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = state.projectName;
+  input.style.cssText = 'background:#1e293b;color:#fff;border:1px solid #3b82f6;padding:2px 6px;border-radius:3px;font-size:12px;width:200px;';
+  span.textContent = '';
+  span.appendChild(input);
+  input.focus();
+  input.select();
+
+  function finish(accept) {
+    if (accept) {
+      state.projectName = input.value.trim() || state.projectName;
+      saveToLocalStorage();
+    }
+    span.classList.remove('editing');
+    span.textContent = state.projectName;
+  }
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') finish(true);
+    if (e.key === 'Escape') finish(false);
+  });
+});
+
+// ===== INIT =====
+loadFromLocalStorage();
+state.viewStart.setDate(1); // Start at beginning of month
+renderAll();
+
+// Auto-save every 30 seconds
+setInterval(saveToLocalStorage, 30000);
+
+console.log('PIF Schedule Manager ready');
+</script>
+</body>
+</html>
