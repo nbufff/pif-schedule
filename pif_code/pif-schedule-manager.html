@@ -175,10 +175,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 <div id="main">
   <!-- Sidebar -->
   <div id="sidebar">
-    <div id="sidebar-header">📂 Work Packages</div>
-    <div id="wp-tree">
-      <div style="padding:16px;text-align:center;color:#94a3b8;font-size:11px;">Import Excel to load work packages</div>
-    </div>
+    <div id="sidebar-header">📋 Deliverables</div>
+    <div id="wp-tree" style="display:none;"></div>
     <div id="unplaced-section">
       <div class="section-label">📌 UNPLACED (Drag to board)</div>
       <div id="unplaced-list"></div>
@@ -208,8 +206,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
       <button class="nav-btn" id="btn-nav-next">▶</button>
       <span class="sep">|</span>
       <button class="nav-btn" id="btn-today">Today</button>
-      <span class="sep">|</span>
-      <button class="nav-btn" id="btn-clear-board" style="color:#ef4444;">🗑 Clear Board</button>
     </div>
     <div id="board-scroll">
       <div id="board">
@@ -283,7 +279,8 @@ const state = {
   selectedDepId: null,
   selectedBarId: null,
   undoStack: [],
-  projectName: 'WB3 — Template'
+  projectName: 'WB3 — Template',
+  laneCount: 10
 };
 const MAX_UNDO = 50;
 
@@ -588,7 +585,6 @@ let _criticalResult = { deliverables: new Set(), dependencies: new Set() };
 
 function renderAll() {
   // _criticalResult is computed by renderSwimlanes() and consumed by renderArrows()
-  renderWPTree();
   renderUnplaced();
   renderHidden();
   renderCustomWPSelect();
@@ -822,23 +818,45 @@ function renderSwimlanes() {
   try { _criticalResult = computeCriticalPath(); } catch(e) { _criticalResult = { deliverables: new Set(), dependencies: new Set() }; }
   const criticalDeliverables = _criticalResult.deliverables;
 
-  container.innerHTML = state.workPackages.map((wp, i) => {
-    if (wp.visible === false) return '';
-    const wpColors = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316'];
-    const c = wpColors[i % wpColors.length];
-    const placed = wp.deliverables.filter(d => d.placed);
+  const wpColors = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316'];
 
-    const bars = placed.map(d => {
+  // Build a map of WP index for coloring bars by their parent WP
+  const wpIndexMap = {};
+  state.workPackages.forEach((wp, i) => { wpIndexMap[wp.id] = i; });
+
+  // Collect placed deliverables per lane (from all visible WPs)
+  const laneDeliverables = [];
+  for (let i = 0; i < state.laneCount; i++) laneDeliverables.push([]);
+  state.workPackages.forEach(wp => {
+    if (wp.visible === false) return;
+    wp.deliverables.forEach(d => {
+      if (d.placed) {
+        const li = (d.laneIndex !== undefined) ? d.laneIndex : 0;
+        if (li >= 0 && li < state.laneCount) {
+          laneDeliverables[li].push({ deliverable: d, wp: wp });
+        }
+      }
+    });
+  });
+
+  container.innerHTML = '';
+  for (let li = 0; li < state.laneCount; li++) {
+    const laneColor = wpColors[li % wpColors.length];
+    const items = laneDeliverables[li];
+
+    const bars = items.map(({ deliverable: d, wp }) => {
       const start = parseDate(d.startDate);
       const end = parseDate(d.endDate);
       const x = dateToX(start);
       const w = Math.max(dateToX(end) - dateToX(start) + getPixelsPerDay(), 50);
+      const wpIdx = wpIndexMap[wp.id] !== undefined ? wpIndexMap[wp.id] : li;
+      const barColor = wpColors[wpIdx % wpColors.length];
       const isCritical = criticalDeliverables.has(d.id) ? ' critical' : '';
       return `
       <div class="deliverable-bar ${d.isCustom ? 'custom' : ''}${d.id === state.selectedBarId ? ' selected' : ''}${isCritical}"
            id="bar-${d.id}"
            data-deliverable-id="${d.id}"
-           style="left:${x}px;top:4px;width:${w}px;background:linear-gradient(135deg,${c},${darken(c)});border:2px solid ${darken(c)};">
+           style="left:${x}px;top:4px;width:${w}px;background:linear-gradient(135deg,${barColor},${darken(barColor)});border:2px solid ${darken(barColor)};">
         <div class="remove-btn" onclick="event.stopPropagation();removeDeliverableFromBoard('${d.id}')">✕</div>
         <span class="bar-name" title="${escHtml(d.name)}">${d.isCustom?'✏️':'📄'} ${escHtml(d.name)}</span>
         <span class="bar-dates">${formatDate(start)} → ${formatDate(end)}</span>
@@ -847,14 +865,17 @@ function renderSwimlanes() {
       </div>`;
     }).join('');
 
-    return `
-    <div class="swimlane" data-wp-id="${wp.id}" id="swimlane-${wp.id}">
-      <div class="swimlane-header" oncontextmenu="showSwimlaneCtx(event, '${wp.id}')" style="border-left:3px solid ${c};">${escHtml(wp.name)}</div>
-      <div class="swimlane-body" id="swimlane-body-${wp.id}" style="min-width:${totalWidth}px;" data-wp-id="${wp.id}">
+    const laneDiv = document.createElement('div');
+    laneDiv.className = 'swimlane';
+    laneDiv.id = 'swimlane-lane-' + li;
+    laneDiv.setAttribute('data-lane-index', li);
+    laneDiv.innerHTML = `
+      <div class="swimlane-header" style="border-left:3px solid ${laneColor};min-height:36px;"></div>
+      <div class="swimlane-body" id="swimlane-body-lane-${li}" style="min-width:${totalWidth}px;" data-lane-index="${li}">
         ${bars || ''}
-      </div>
-    </div>`;
-  }).join('');
+      </div>`;
+    container.appendChild(laneDiv);
+  }
 
   // After rendering swimlanes, setup interact for bars and swimlane bodies
   setupInteract();
@@ -890,14 +911,13 @@ function renderArrows() {
     const to = findDeliverableOnBoard(dep.to);
     if (!from || !to) return;
 
-    const fromWP = state.workPackages.find(wp => wp.id === from.wpId);
-    const toWP = state.workPackages.find(wp => wp.id === to.wpId);
-    if (!fromWP || !toWP || fromWP.visible === false || toWP.visible === false) return;
+    const fromLI = from.deliverable.laneIndex !== undefined ? from.deliverable.laneIndex : 0;
+    const toLI = to.deliverable.laneIndex !== undefined ? to.deliverable.laneIndex : 0;
 
     const fromEl = document.getElementById('bar-' + dep.from);
     const toEl = document.getElementById('bar-' + dep.to);
-    const fromSwimlane = document.getElementById('swimlane-' + fromWP.id);
-    const toSwimlane = document.getElementById('swimlane-' + toWP.id);
+    const fromSwimlane = document.getElementById('swimlane-lane-' + fromLI);
+    const toSwimlane = document.getElementById('swimlane-lane-' + toLI);
     if (!fromEl || !toEl || !fromSwimlane || !toSwimlane) return;
 
     const fromRect = fromEl.getBoundingClientRect();
@@ -923,7 +943,7 @@ function renderArrows() {
     const midX = sx + (tx - sx) * 0.4;
 
     let path;
-    if (fromWP.id === toWP.id) {
+    if (fromLI === toLI) {
       // Same lane — route below bars
       const offsetY = Math.max(sy, ty) + 20;
       path = `M${sx},${sy} L${sx+8},${sy} L${sx+8},${offsetY} L${tx-8},${offsetY} L${tx-8},${ty} L${tx},${ty}`;
@@ -952,7 +972,7 @@ function renderArrows() {
 
     // Label position: middle of the horizontal segment
     const labelX = (sx + tx) / 2;
-    const labelY = fromWP.id === toWP.id ? Math.max(sy, ty) + 16 :
+    const labelY = fromLI === toLI ? Math.max(sy, ty) + 16 :
                    (fromSwimRect.bottom - originY + toSwimRect.top - originY) / 2 - 6;
 
     html += `<path class="arrow-line${selClass}" data-dep-id="${dep.id}" d="${path}" stroke="${color}" stroke-width="1.8" fill="none" marker-end="${marker}" vector-effect="non-scaling-stroke"/>`;
@@ -1185,10 +1205,11 @@ function setupInteract() {
   document.querySelectorAll('.swimlane-body').forEach(body => {
     body.ondblclick = function(e) {
       if (e.target === body || e.target.classList.contains('drop-hint')) {
-        const wpId = body.dataset.wpId;
+        const laneIndex = parseInt(body.getAttribute('data-lane-index'));
+        if (isNaN(laneIndex)) return;
         const rect = body.getBoundingClientRect();
         const x = e.clientX - rect.left;
-        quickCreateDeliverable(wpId, x);
+        quickCreateDeliverable(laneIndex, x);
       }
     };
   });
@@ -1221,22 +1242,17 @@ function updateBarDateFromPosition(id, left, width, durDays) {
   }
 }
 
-function placeDeliverableOnBoard(deliverableId, wpId, dropX) {
+function placeDeliverableOnBoard(deliverableId, laneIndex, dropX) {
   const result = findDeliverable(deliverableId);
-  if (!result || result.wp.id !== wpId) {
-    // If different WP, move deliverable to that WP
-    moveDeliverableToWP(deliverableId, wpId);
-  }
-
-  const result2 = findDeliverable(deliverableId);
-  if (!result2) return;
+  if (!result) return;
 
   pushUndo();
   const startDate = xToDate(dropX);
   const endDate = addDays(startDate, state.zoom === 'day' ? 1 : 7);
-  result2.deliverable.placed = true;
-  result2.deliverable.startDate = dateStr(startDate);
-  result2.deliverable.endDate = dateStr(endDate);
+  result.deliverable.placed = true;
+  result.deliverable.laneIndex = laneIndex;
+  result.deliverable.startDate = dateStr(startDate);
+  result.deliverable.endDate = dateStr(endDate);
 
   // Defer render to let native drag/drop lifecycle complete, then force repaint to clear ghost
   setTimeout(() => {
@@ -1264,11 +1280,12 @@ function moveDeliverableToWP(deliverableId, newWPId) {
   }
 }
 
-function quickCreateDeliverable(wpId, x) {
+function quickCreateDeliverable(laneIndex, x) {
   const name = prompt('Enter deliverable name:');
   if (!name || !name.trim()) return;
 
-  const wp = state.workPackages.find(w => w.id === wpId);
+  // Store in first visible WP (WP association is independent of lane placement)
+  const wp = state.workPackages.find(w => w.visible !== false);
   if (!wp) return;
 
   pushUndo();
@@ -1280,6 +1297,7 @@ function quickCreateDeliverable(wpId, x) {
     reasonOfDeviation: '',
     isCustom: true,
     placed: true,
+    laneIndex: laneIndex,
     startDate: dateStr(startDate),
     endDate: dateStr(addDays(startDate, 7))
   };
@@ -1300,26 +1318,6 @@ function removeDeliverableFromBoard(id) {
   renderAll();
   saveToLocalStorage();
   showToast('Deliverable removed from board');
-}
-
-function clearAllFromBoard() {
-  const placedCount = getAllDeliverables().filter(d => d.placed).length;
-  if (placedCount === 0) { showToast('Nothing to clear'); return; }
-  if (!confirm(`Clear all ${placedCount} placed deliverable(s) from the board? This can be undone with Ctrl+Z.`)) return;
-  pushUndo();
-  state.workPackages.forEach(wp => {
-    wp.deliverables.forEach(d => {
-      d.placed = false;
-      d.startDate = null;
-      d.endDate = null;
-    });
-  });
-  state.dependencies = [];
-  state.selectedBarId = null;
-  state.selectedDepId = null;
-  renderAll();
-  saveToLocalStorage();
-  showToast(`Cleared ${placedCount} deliverable(s) from board`);
 }
 
 // Pre-create blank drag image (must be in DOM for setDragImage to work in all browsers)
@@ -1366,15 +1364,12 @@ function handleSidebarDragOver(e) {
   ghost.style.left = e.clientX + 'px';
   ghost.style.top = e.clientY + 'px';
 
-  // Highlight parent WP's swimlane (deliverable auto-snaps to its parent lane)
-  const id = e.dataTransfer.getData('text/plain');
+  // Highlight lane under cursor
   document.querySelectorAll('.swimlane-body').forEach(b => b.classList.remove('drag-over'));
-  if (id) {
-    const result = findDeliverable(id);
-    if (result) {
-      const homeBody = document.getElementById('swimlane-body-' + result.wp.id);
-      if (homeBody) homeBody.classList.add('drag-over');
-    }
+  const target = document.elementFromPoint(e.clientX, e.clientY);
+  if (target) {
+    const body = target.closest('.swimlane-body');
+    if (body) body.classList.add('drag-over');
   }
 }
 
@@ -1384,20 +1379,19 @@ function handleSidebarDrop(e) {
   const id = e.dataTransfer.getData('text/plain');
   if (!id) return;
 
-  // Find the deliverable's parent WP and drop onto its lane regardless of cursor position
   const result = findDeliverable(id);
   if (!result) return;
-  const wpId = result.wp.id;
 
   const target = document.elementFromPoint(e.clientX, e.clientY);
   if (!target) return;
   const body = target.closest('.swimlane-body');
-  const swimlaneBody = body || document.getElementById('swimlane-body-' + wpId);
-  if (!swimlaneBody) return;
+  if (!body) return;
+  const laneIndex = parseInt(body.getAttribute('data-lane-index'));
+  if (isNaN(laneIndex)) return;
 
-  const rect = swimlaneBody.getBoundingClientRect();
+  const rect = body.getBoundingClientRect();
   const x = e.clientX - rect.left;
-  placeDeliverableOnBoard(id, wpId, x);
+  placeDeliverableOnBoard(id, laneIndex, x);
 }
 
 // ===== DEPENDENCIES =====
@@ -1949,6 +1943,15 @@ function loadFromLocalStorage() {
       state.zoom = data.zoom || 'week';
       state.viewStart = data.viewStart ? new Date(data.viewStart) : new Date();
       state.projectName = data.projectName || 'Restored from storage';
+      state.laneCount = data.laneCount || 10;
+      // Migrate existing placed deliverables without laneIndex
+      let migrated = 0;
+      state.workPackages.forEach(wp => {
+        wp.deliverables.forEach(d => {
+          if (d.placed && d.laneIndex === undefined) { d.laneIndex = 0; migrated++; }
+        });
+      });
+      if (migrated > 0) console.log('Migrated ' + migrated + ' deliverables to lane 0');
       if (state.workPackages.length > 0) {
         return;
       }
@@ -2045,9 +2048,6 @@ document.getElementById('project-label').addEventListener('dblclick', function()
     if (e.key === 'Escape') finish(false);
   });
 });
-
-// ===== CLEAR BOARD BUTTON =====
-document.getElementById('btn-clear-board').addEventListener('click', clearAllFromBoard);
 
 // ===== INIT =====
 loadFromLocalStorage();
